@@ -24,6 +24,14 @@ lldb::
 
     lldb --source-before-file ../.lldbinit -O "breakpoint set -r 'LLT<.*>::compute'" -o "run" --  python -B ...
 
+update::
+
+    git checkout master
+    git checkout -b <date>
+    git fetch upstream master
+    git merge upstream/master
+    git cherry-pick <old-branch>
+
 NDEBUG
 ======
 
