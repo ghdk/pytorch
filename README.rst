@@ -17,6 +17,12 @@ build::
     MACOSX_DEPLOYMENT_TARGET=12.4 CC=clang CXX=clang++  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0  python setup.py install
                                                                                                                                                                                                          build -j11 install test clean
 
+docker/linux::
+    apt-get install apt-file aptitude
+    aptitude install locales emacs-nox wget
+    emacs -nw /etc/locale.gen, locale-gen
+    aptitude install python3 python3-venv python3-dev gcc g++ git cmake
+
 unittest::
 
     python3 -B test/test_license.py
