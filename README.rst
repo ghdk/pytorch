@@ -75,6 +75,9 @@ TODOs
 `<https://ai.googleblog.com/2017/04/federated-learning-collaborative.html>`_
 
 ====  CNNs  ====================================================================
+====  RNNs  ====================================================================
+
+recurrent neural network and Legendre polynomials
 
 ====  Model Prunning  ==========================================================
 
@@ -100,6 +103,19 @@ GPU operators for bitmap, and GPU execution.
 
 https://theaisummer.com/tfx/
 
+====  Algorithms  ==============================================================
+
+- Ensemble Learning Algorithms (Random Forests, XGBoost, LightGBM, CatBoost)
+- Explanatory Algorithms (Linear Regression, Logistic Regression, SHAP, LIME)
+- Clustering Algorithms (k-Means, Hierarchical Clustering)
+- Dimensionality Reduction Algorithms (PCA, LDA)
+- Similarity Algorithms (KNN, Euclidean Distance, Cosine, Levenshtein,
+                         Jaro-Winkler, SVD)
+
+====  memory  ==================================================================
+
+https://www.sicara.fr/blog-technique/2019-28-10-deep-learning-memory-usage-and-pytorch-optimization-tricks
+                         
 ================================================================================
 Object detection/segmentation models, Transfer Learning, CNN, Autoencoders,
 GANs, Transformers, LSTMs, Ensemble Learning, Continual Learning, AutoML,
