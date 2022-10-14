@@ -8,7 +8,7 @@ namespace extensions { namespace iter
     class GeneratedIterator
     {
     public:  // typedefs
-        using generator_t = std::function<std::pair<ValueType, bool>(void)>;
+        using generator_t = std::function<std::optional<ValueType>(void)>;
     public:  // iterator
         using iterator_category = std::input_iterator_tag;
         using value_type = ValueType;
@@ -18,7 +18,7 @@ namespace extensions { namespace iter
     public:  // methods
         bool operator==(const GeneratedIterator& other) const
         {
-            return truth_ == other.truth_;
+            return value_.has_value() == other.value_.has_value();
         }
 
         bool operator!=(const GeneratedIterator& other) const
@@ -28,13 +28,13 @@ namespace extensions { namespace iter
 
         value_type operator*()
         {
-            return value_;
+            return value_.value();
         }
 
         inline const GeneratedIterator& operator++()
         {
-            if(truth_)
-                std::tie(value_, truth_) = func_();
+            if(value_)
+                value_ = func_();
             return *this;
         }
 
@@ -46,10 +46,10 @@ namespace extensions { namespace iter
         }
     public:  // copy/move semantics
         explicit GeneratedIterator(generator_t const& func, bool truth)
-        : func_{func}, truth_{truth}
+        : func_{func}
         {
-            if(truth_)
-                std::tie(value_, truth_) = func_();
+            if(truth)
+                value_ = func_();
         }
         GeneratedIterator(GeneratedIterator const& other) = delete;
         GeneratedIterator(GeneratedIterator&& other) = default;
@@ -57,8 +57,7 @@ namespace extensions { namespace iter
         GeneratedIterator& operator=(GeneratedIterator&& other) = delete;
     private:  // members
         generator_t func_;
-        bool truth_;
-        value_type value_;
+        std::optional<value_type> value_;
     };
 
     template<typename ValueType>

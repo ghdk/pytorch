@@ -47,7 +47,7 @@ class unittest(Command):
             except:
                 break
 
-extra_cpp_flags = ['-g', '-O0', '-std=c++20', '-DPYDEF']
+extra_cpp_flags = ['-g', '-O2', '-std=c++20', '-DPYDEF']
 extra_ld_flags = []
 
 setup(name='extensions',
@@ -92,6 +92,22 @@ setup(name='extensions',
                                               sources=['iter/mapped_iterator.cc'],
                                               extra_compile_args=extra_cpp_flags,
                                               extra_link_args=extra_ld_flags),
+                    cpp_extension.CppExtension('csp.solver',
+                                               sources=['constraints/permutation.cc'],
+                                               extra_compile_args=extra_cpp_flags,
+                                               extra_link_args=extra_ld_flags),
+                    cpp_extension.CppExtension('csp.conflict_directed_backjumping',
+                                               sources=['constraints/conflict_directed_backjumping.cc'],
+                                               extra_compile_args=extra_cpp_flags,
+                                               extra_link_args=extra_ld_flags),
+                    cpp_extension.CppExtension('csp.constraint_mutex',
+                                               sources=['constraints/constraint_mutex.cc'],
+                                               extra_compile_args=extra_cpp_flags,
+                                               extra_link_args=extra_ld_flags),
+                    cpp_extension.CppExtension('csp.forward_checking',
+                                               sources=['constraints/forward_checking.cc'],
+                                               extra_compile_args=extra_cpp_flags,
+                                               extra_link_args=extra_ld_flags),
       ],
       cmdclass={'build_ext': cpp_extension.BuildExtension,
                 'clean': clean,
