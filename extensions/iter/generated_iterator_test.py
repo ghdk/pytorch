@@ -9,7 +9,7 @@ class F(object):
         self._t = True
     
     def __call__(self):
-        ret = (self._a, self._t)
+        ret = (self._a if self._t else None)
         self._a += 1
         self._t = (13 != self._a)
         return ret

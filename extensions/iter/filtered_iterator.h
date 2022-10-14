@@ -58,7 +58,7 @@ public:  // copy/move semantics
     FilteredIterator& operator=(FilteredIterator&& other) = delete;
 private:  // members
     range_t<Iterator> range_;
-    filter_t func_;
+    filter_t const& func_;
 };
 
 template<typename Enumerable>
@@ -78,35 +78,47 @@ public:  // methods
     }
     iterator_t begin()
     {
-        return static_cast<FilteredEnumerable const&>(*this).begin();
+        return static_cast<FilteredEnumerable const*>(this)->begin();
     }
     iterator_t end()
     {
-        return static_cast<FilteredEnumerable const&>(*this).end();
+        return static_cast<FilteredEnumerable const*>(this)->end();
     }
 public:  // copy/move semantics
-    explicit FilteredEnumerable(Enumerable&& e, typename iterator_t::filter_t&& f)
-    : enumerable_{std::move(e)}
-    , func_{std::move(f)}
-    {}
     explicit FilteredEnumerable(Enumerable const& e, typename iterator_t::filter_t const& f)
     : enumerable_{e}, func_{f}
     {}
-    FilteredEnumerable(FilteredEnumerable const& other) = default;
-    FilteredEnumerable(FilteredEnumerable&& other) = default;
+    FilteredEnumerable(FilteredEnumerable const& other) = delete;
+    FilteredEnumerable(FilteredEnumerable&& other) = delete;
     FilteredEnumerable& operator=(FilteredEnumerable const& other) = delete;
     FilteredEnumerable& operator=(FilteredEnumerable&& other) = delete;
 private:  // members
-    Enumerable enumerable_;
-    typename iterator_t::filter_t func_;
+    Enumerable const& enumerable_;
+    typename iterator_t::filter_t const& func_;
 
 #ifdef PYDEF
+
+    /**
+     * pybind11 creates a temporary object when wrapping callbacks. The
+     * enumerable needs to hold a reference to a callback instead. When
+     * used with pybind11 the enumerable takes ownership of the temporary
+     * object referring to the callback, but not the callback.
+     */
+
+private:
+    typename iterator_t::filter_t func_wrapper_;
 public:
+    explicit FilteredEnumerable(Enumerable const& e, typename iterator_t::filter_t&& f)
+    : enumerable_{e}
+    , func_{func_wrapper_}
+    , func_wrapper_{std::move(f)}
+    {}
+
     template <typename PY>
     static PY def(PY& c)
     {
         using T = typename PY::type;
-        c.def(py::init<Enumerable const&, typename iterator_t::filter_t const&>());
+        c.def(py::init<Enumerable const&, typename iterator_t::filter_t&&>());
         c.def("__iter__", [](ptr_t<T> e){ return py::make_iterator(e->begin(), e->end()); },
               py::keep_alive<0, 1>());
         return c;
