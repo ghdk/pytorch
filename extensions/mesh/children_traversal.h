@@ -12,7 +12,7 @@ namespace extensions { namespace mesh
 
 class ChildrenTraversal
 {
-public:  // typedefs
+private:  // typedefs
     using ret_t = GeneratedIterator<Mesh::mesh_ptr>::generator_t::result_type;
 public:  // methods
     ret_t operator()(void)
@@ -21,7 +21,7 @@ public:  // methods
             state_ = state_->p(Mesh::dim::y);
         else if(nullptr != state_ && mesh_ == state_->n(Mesh::dim::y))
             state_ = state_->p(Mesh::dim::x);
-        return ret_t{state_, nullptr != state_};
+        return (nullptr != state_? ret_t{state_} : std::nullopt);
     }
 
 public:  // copy/move semantics
