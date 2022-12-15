@@ -100,6 +100,10 @@ recurrent neural network and Legendre polynomials
 
 GPU operators for bitmap, and GPU execution.
 
+====  GPU/MPS  =================================================================
+
+`<https://developer.apple.com/metal/pytorch/>`_
+
 ====  pipeline  ================================================================
 
 https://theaisummer.com/tfx/
