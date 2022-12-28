@@ -118,6 +118,19 @@ class Test(unittest.TestCase):
         print("count:", count, round(count / self._count_threshold, 2))
         self.assertLess(self._count_threshold * 0.95, count)
 
+    def test_time_without_constraints_mps(self):
+        mps = torch.device("mps")
+        state = torch.Tensor(self._large['s']).to(mps)
+        domains = torch.Tensor(self._large['d']).to(mps)
+        p = Permutation(state, domains, [])
+        count = 0
+        start = time.time_ns()
+        for i in GT(p):
+            count += 1
+            if time.time_ns() - start >= ONE_SEC: break
+        print("count:", count, round(count / self._count_threshold, 2))
+        self.assertLess(self._count_threshold * 0.95, count)
+
     def test_time_with_constraint_mutex(self):
         state = torch.Tensor(self._large['s'])
         domains = torch.Tensor(self._large['d'])
