@@ -37,13 +37,6 @@ public:  // methods
         return *this;
     }
 
-    FilteredIterator const& operator++(int)
-    {
-        FilteredIterator ret = *this;
-        ++(*this);
-        return ret;
-    }
-
     inline void SeekNext() 
     {
         do
