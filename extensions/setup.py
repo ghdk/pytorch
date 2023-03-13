@@ -39,10 +39,11 @@ class unittest(Command):
         for dirpath, dirnames, filenames in os.walk(start_dir):
             for filename in fnmatch.filter(filenames, pattern):
                 assert os.path.exists(dirpath+"/__init__.py"), "the directory " + dirpath + " without __init__.py contains the unit tests " + filename + "!"
-                tests.append(os.path.join(dirpath, filename))
-        for t in tests:
+                tests.append((dirpath, filename))
+        for (d,t) in tests:
             try:
-                rc = subprocess.call(f"python3 {t}", shell=True)
+                print(os.path.join(d,t))
+                rc = subprocess.call(f"cd {d} && python3 -m unittest -v {t}", shell=True)
                 assert 0 == rc
             except:
                 break
