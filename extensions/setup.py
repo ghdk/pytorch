@@ -43,7 +43,7 @@ class unittest(Command):
         for (d,t) in tests:
             try:
                 print(os.path.join(d,t))
-                rc = subprocess.call(f"cd {d} && python3 -m unittest -v {t}", shell=True)
+                rc = subprocess.call(f"cd {d} && python3 -B -m unittest -v {t}", shell=True)
                 assert 0 == rc
             except:
                 break
