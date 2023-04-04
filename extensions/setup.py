@@ -34,6 +34,7 @@ class unittest(Command):
         import fnmatch
         import os
         tests = []
+        tests_failed = []
         start_dir = '.'
         pattern = '*_test.py'
         for dirpath, dirnames, filenames in os.walk(start_dir):
@@ -41,12 +42,14 @@ class unittest(Command):
                 assert os.path.exists(dirpath+"/__init__.py"), "the directory " + dirpath + " without __init__.py contains the unit tests " + filename + "!"
                 tests.append((dirpath, filename))
         for (d,t) in tests:
+            test = os.path.join(d,t)
             try:
-                print(os.path.join(d,t))
+                print(test)
                 rc = subprocess.call(f"cd {d} && python3 -B -m unittest -v {t}", shell=True)
                 assert 0 == rc
             except:
-                break
+                tests_failed.append(test)
+        print("failed tests =", tests_failed)
 
 extra_cpp_flags = ['-g', '-O0', '-std=c++20', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_ld_flags = []
