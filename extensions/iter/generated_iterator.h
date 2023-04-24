@@ -44,7 +44,7 @@ namespace extensions { namespace iter
             if(truth)
                 value_ = func_();
         }
-        GeneratedIterator(GeneratedIterator const& other) = delete;
+        GeneratedIterator(GeneratedIterator const& other) = default;
         GeneratedIterator(GeneratedIterator&& other) = default;
         GeneratedIterator& operator=(GeneratedIterator const& other) = delete;
         GeneratedIterator& operator=(GeneratedIterator&& other) = delete;

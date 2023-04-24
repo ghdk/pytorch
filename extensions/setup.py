@@ -51,7 +51,7 @@ class unittest(Command):
                 tests_failed.append(test)
         print("failed tests =", tests_failed)
 
-extra_cpp_flags = ['-g', '-O0', '-std=c++20', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
+extra_cpp_flags = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_ld_flags = []
 
 setup(name='extensions',
