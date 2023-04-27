@@ -21,7 +21,7 @@ docker/linux::
     apt-get install apt-file aptitude
     aptitude install locales emacs-nox wget
     emacs -nw /etc/locale.gen, locale-gen
-    aptitude install python3 python3-venv python3-dev gcc g++ git cmake
+    aptitude install python3 python3-venv python3-dev gcc g++ gdb git cmake valgrind
 
 unittest::
 
@@ -31,6 +31,10 @@ unittest::
 lldb::
 
     lldb --source-before-file ../.lldbinit -O "breakpoint set -r 'LLT<.*>::compute'" -o "run" --  python -B ...
+
+gdb::
+
+    gdb -iex "set auto-load safe-path /" -iex "set breakpoint pending on" -ex "break permutation.h:32" -ex run --args python3 constraints/solver_test.py Test.test_constraints_solver_permutation
 
 update::
 
