@@ -1,7 +1,38 @@
 #ifndef SYSTEM_H
 #define SYSTEM_H
+
+// gcc/clang -std=c++20 -x c++ -Wp,-v -E -xc -dD /dev/null
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#pragma clang diagnostic ignored "-Wextra-semi"
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wextra-semi"
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+
+#if defined(__clang__)
+#include "execution.h"
+#elif defined(__GNUC__) || defined(__GNUG__)
+#include <execution>
+#endif
+
+#include <concepts>
+#include <atomic>
 #include <torch/extension.h>
 #include <pybind11/functional.h>
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace extensions
 {
@@ -23,6 +54,9 @@ namespace extensions
         std::unique_ptr<char, decltype(::free)*> ret{abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status), ::free};
         return {*ret};
     }
+
+    template <typename T>
+    static constexpr size_t bitsize = sizeof(T) * CHAR_BIT;
 
 }  // namespace extensions
 
