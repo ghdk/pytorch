@@ -1,7 +1,11 @@
 import shutil
+import platform
+import sys
 from pathlib import Path
 from setuptools import setup, Extension, Command
 from torch.utils import cpp_extension
+
+IS_LINUX = 'Linux' in platform.platform()
 
 class clean(Command):
     user_options = []
@@ -53,6 +57,13 @@ class unittest(Command):
             except:
                 tests_failed.append(test)
         print("failed tests =", tests_failed)
+        
+def buildlib():
+    ret = None
+    for arg in sys.argv:
+        if '--build-lib' in arg:
+            ret = arg.split('=')[1]
+    return ret
 
 extra_cpp_flags = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_ld_flags = []
@@ -105,12 +116,16 @@ setup(name='extensions',
                                               extra_link_args=extra_ld_flags),
                    cpp_extension.CppExtension('graph.converter',
                                               sources=['graph/converter.cc'],
+                                              runtime_library_dirs=['$ORIGIN/../bitarray'],
+                                              library_dirs=[] + [f'{buildlib()}/bitarray/'] if IS_LINUX else [],
                                               extra_compile_args=extra_cpp_flags,
-                                              extra_link_args=extra_ld_flags),
+                                              extra_link_args=extra_ld_flags + ['-l:bitarray.so'] if IS_LINUX else []),
                    cpp_extension.CppExtension('graph.accessor',
                                               sources=['graph/accessor.cc'],
+                                              runtime_library_dirs=['$ORIGIN/../bitarray'],
+                                              library_dirs=[] + [f'{buildlib()}/bitarray/'] if IS_LINUX else [],
                                               extra_compile_args=extra_cpp_flags,
-                                              extra_link_args=extra_ld_flags),
+                                              extra_link_args=extra_ld_flags + ['-l:bitarray.so'] if IS_LINUX else []),
       ],
       cmdclass={'build_ext': cpp_extension.BuildExtension,
                 'clean': clean,
