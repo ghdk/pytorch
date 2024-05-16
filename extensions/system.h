@@ -17,8 +17,12 @@
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
+#undef NDEBUG
+#undef STRIP_ERROR_MESSAGES
+#include <cassert>
 #include <concepts>
 #include <atomic>
+#include <random>
 #include <torch/extension.h>
 #include <pybind11/functional.h>
 
@@ -30,17 +34,17 @@
 
 namespace extensions
 {
-#define assertm TORCH_INTERNAL_ASSERT
+template<typename ...Args>
+bool assertlog(Args ...args)
+{
+    (std::cerr << ... << args) << ": ";
+    return false;
+}
+#define assertm(expr, ...) assert((expr) || assertlog(__VA_ARGS__))
 
     template <typename T> using ptr_t = std::shared_ptr<T>;
     template <typename T> using ptr_w = std::weak_ptr<T>;
     template <typename T> using ptr_u = std::unique_ptr<T>;
-
-    // template <typename T>
-    // concept Iterable = !std::is_void<typename std::decay<T>::type::iterator_category>::value;
-    // template <Iterable T> using range_t = std::pair<T,T>;
-
-    template <typename T> using range_t = typename std::conditional<!std::is_void<typename std::decay<T>::type::iterator_category>::value, std::pair<T,T>, std::false_type>::type;
 
     static std::string demangle(std::string const& name)
     {
@@ -49,8 +53,7 @@ namespace extensions
         return {*ret};
     }
 
-    template <typename T>
-    static constexpr size_t bitsize = sizeof(T) * CHAR_BIT;
+    constexpr int page_size = 4096;  // bytes
 
 }  // namespace extensions
 

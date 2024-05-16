@@ -9,7 +9,7 @@ class MappedIterator
 {
 public:  // typedefs
     using iterator_t = Iterator;
-    using map_t = std::function<ToType(typename iterator_t::value_type)>;
+    using map_t = std::function<ToType(typename extensions::iter::iterator_traits_t<iterator_t>::value_type)>;
 public:  // iterator
     using iterator_category = std::input_iterator_tag;
     using value_type = ToType;
@@ -56,28 +56,33 @@ template<typename ToType, typename Enumerable>
 class MappedEnumerable
 {
 public:  // typedefs
-    using iterator_wrapped_t = typename std::decay<decltype(std::declval<Enumerable>().begin())>::type;
+    using enumerable_wrapped_t = Enumerable;
+    using iterator_wrapped_t = typename std::decay<decltype(std::declval<enumerable_wrapped_t>().begin())>::type;
     using iterator_t = MappedIterator<ToType, iterator_wrapped_t>;
 public:  // methods
     iterator_t begin() const
     {
-        return iterator_t{std::move(enumerable_.begin()), std::move(enumerable_.end()), func_};
+        return iterator_t{std::move(const_cast<enumerable_wrapped_t&>(enumerable_).begin()),
+                          std::move(const_cast<enumerable_wrapped_t&>(enumerable_).end()),
+                          func_};
     }
     iterator_t end() const
     {
-        return iterator_t{std::move(enumerable_.end()), std::move(enumerable_.end()), func_};
+        return iterator_t{std::move(const_cast<enumerable_wrapped_t&>(enumerable_).end()),
+                          std::move(const_cast<enumerable_wrapped_t&>(enumerable_).end()),
+                          func_};
     }
 
     iterator_t begin()
     {
-        return static_cast<MappedEnumerable const*>(this)->begin();
+        return const_cast<MappedEnumerable const*>(this)->begin();
     }
     iterator_t end()
     {
-        return static_cast<MappedEnumerable const*>(this)->end();
+        return const_cast<MappedEnumerable const*>(this)->end();
     }
 public:  // copy/move semantics
-    explicit MappedEnumerable(Enumerable const& e, typename iterator_t::map_t const& f)
+    explicit MappedEnumerable(enumerable_wrapped_t const& e, typename iterator_t::map_t const& f)
     : enumerable_{e}, func_{f}
     {}
     MappedEnumerable(MappedEnumerable const& other) = delete;
@@ -85,7 +90,7 @@ public:  // copy/move semantics
     MappedEnumerable& operator=(MappedEnumerable const& other) = delete;
     MappedEnumerable& operator=(MappedEnumerable&& other) = delete;
 private:  // members
-    Enumerable const& enumerable_;
+    enumerable_wrapped_t const& enumerable_;
     typename iterator_t::map_t const& func_;
 
 #ifdef PYDEF
@@ -117,6 +122,16 @@ public:
     }
 #endif  // PYDEF
 };
+
+template<typename E, typename F>
+constexpr auto map(E const& e, F const& f)
+{
+    using iter_t = typename std::decay_t<decltype(std::declval<E>().end())>;
+    using value_t = typename extensions::iter::iterator_traits_t<iter_t>::value_type;
+    using map_t = decltype(f(std::declval<value_t>()));
+
+    return MappedEnumerable<map_t, E>(e, f);
+}
 
 }}  // namespace extensions::iter
 

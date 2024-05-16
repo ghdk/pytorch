@@ -1,5 +1,6 @@
 #include "../system.h"
 using namespace extensions;
+#include "iter.h"
 #include "generated_iterator.h"
 #include "mapped_iterator.h"
 using namespace extensions::iter;
