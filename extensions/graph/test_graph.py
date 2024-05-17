@@ -100,9 +100,14 @@ class Test(unittest.TestCase):
     
     def test_graph_size(self):
         g = G.Graph()
-        self.assertEqual(0, G.size(g))
+        self.assertEqual(0, G.size(g, G.UNDIRECTED))
         total = G.PAGE_SIZE * B.CELL_SIZE
         for i in range(0, total):
             g.vertex(i, True)
         g.edge(0,0,True)
-        self.assertEqual(1, G.size(g))
+        self.assertEqual(1, G.size(g, G.UNDIRECTED))
+        # add two edges
+        g.edge(1,2,True)
+        g.edge(2,1,True)
+        self.assertEqual(2, G.size(g, G.UNDIRECTED))
+        self.assertEqual(3, G.size(g, G.DIRECTED))
