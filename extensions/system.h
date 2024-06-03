@@ -22,9 +22,16 @@
 #include <cassert>
 #include <concepts>
 #include <atomic>
+#include <algorithm>
 #include <random>
+#include <new>
+#include <filesystem>
 #include <torch/extension.h>
 #include <pybind11/functional.h>
+
+#ifndef __cpp_lib_span
+#include <gsl/span>
+#endif
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -35,12 +42,12 @@
 namespace extensions
 {
 template<typename ...Args>
-bool assertlog(Args ...args)
+bool assertlog(const Args& ...args)
 {
-    (std::cerr << ... << args) << ": ";
+    ((std::cerr << args << ' '), ...) << ": ";
     return false;
 }
-#define assertm(expr, ...) assert((expr) || assertlog(__VA_ARGS__))
+#define assertm(expr, ...) assert((expr) || extensions::assertlog(__VA_ARGS__))
 
     template <typename T> using ptr_t = std::shared_ptr<T>;
     template <typename T> using ptr_w = std::weak_ptr<T>;
