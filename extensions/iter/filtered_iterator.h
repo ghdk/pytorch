@@ -8,10 +8,11 @@ template<typename Iterator>
 class FilteredIterator
 {
 public:  // typedefs
-    using filter_t = std::function<bool(typename Iterator::value_type)>;
+    using iterator_t = Iterator;
+    using filter_t = std::function<bool(typename extensions::iter::iterator_traits_t<iterator_t>::value_type)>;
 public:  // iterator
     using iterator_category = std::input_iterator_tag;
-    using value_type = typename Iterator::value_type;
+    using value_type = typename extensions::iter::iterator_traits_t<iterator_t>::value_type;
     using difference_type = std::ptrdiff_t;
     using pointer = value_type*;
     using reference = value_type&;
@@ -57,7 +58,7 @@ public:  // copy/move semantics
     FilteredIterator& operator=(FilteredIterator const& other) = delete;
     FilteredIterator& operator=(FilteredIterator&& other) = delete;
 private:  // members
-    range_t<Iterator> range_;
+    range_t<iterator_t> range_;
     filter_t const& func_;
 };
 
@@ -65,27 +66,32 @@ template<typename Enumerable>
 class FilteredEnumerable
 {
 public:  // typedefs
-    using iterator_wrapped_t = typename std::decay<decltype(std::declval<Enumerable>().begin())>::type;
+    using enumerable_wrapped_t = Enumerable;
+    using iterator_wrapped_t = typename std::decay<decltype(std::declval<enumerable_wrapped_t>().begin())>::type;
     using iterator_t = FilteredIterator<iterator_wrapped_t>;
 public:  // methods
     iterator_t begin() const
     {
-        return iterator_t{std::move(enumerable_.begin()), std::move(enumerable_.end()), func_};
+        return iterator_t{std::move(const_cast<enumerable_wrapped_t&>(enumerable_).begin()),
+                          std::move(const_cast<enumerable_wrapped_t&>(enumerable_).end()),
+                          func_};
     }
     iterator_t end() const
     {
-        return iterator_t{std::move(enumerable_.end()), std::move(enumerable_.end()), func_};
+        return iterator_t{std::move(const_cast<enumerable_wrapped_t&>(enumerable_).end()),
+                          std::move(const_cast<enumerable_wrapped_t&>(enumerable_).end()),
+                          func_};
     }
     iterator_t begin()
     {
-        return static_cast<FilteredEnumerable const*>(this)->begin();
+        return const_cast<FilteredEnumerable const*>(this)->begin();
     }
     iterator_t end()
     {
-        return static_cast<FilteredEnumerable const*>(this)->end();
+        return const_cast<FilteredEnumerable const*>(this)->end();
     }
 public:  // copy/move semantics
-    explicit FilteredEnumerable(Enumerable const& e, typename iterator_t::filter_t const& f)
+    explicit FilteredEnumerable(enumerable_wrapped_t const& e, typename iterator_t::filter_t const& f)
     : enumerable_{e}, func_{f}
     {}
     FilteredEnumerable(FilteredEnumerable const& other) = delete;
@@ -93,7 +99,7 @@ public:  // copy/move semantics
     FilteredEnumerable& operator=(FilteredEnumerable const& other) = delete;
     FilteredEnumerable& operator=(FilteredEnumerable&& other) = delete;
 private:  // members
-    Enumerable const& enumerable_;
+    enumerable_wrapped_t const& enumerable_;
     typename iterator_t::filter_t const& func_;
 
 #ifdef PYDEF
@@ -125,6 +131,12 @@ public:
     }
 #endif  // PYDEF
 };
+
+template<typename E, typename F>
+constexpr auto filter(E const& e, F const& f)
+{
+    return FilteredEnumerable<E>(e, f);
+}
 
 }}  // namespace extensions::iter
 

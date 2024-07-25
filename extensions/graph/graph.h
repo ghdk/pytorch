@@ -4,66 +4,65 @@
 namespace extensions { namespace graph
 {
 
-static constexpr int64_t UNDEF = -1LL;
-
+/**
+ * The Graph implements only the APIs for bitmap access and resize. All the
+ * graph related algorithms are external. All the types needed to capture
+ * different types of graphs, vertices and edges, are implicitly represented
+ * through an index and a collection of feature sets.
+ */
 struct Graph
 {
+public:
+
+    operator std::string();
+
+    torch::Tensor vertices();
+    torch::Tensor edges();
+    const torch::Tensor vertices() const;
+    const torch::Tensor edges() const;
+
+    bool vertex(index_t);
+
+    /**
+     * - When bool is True, adds a vertex.
+     * - When bool is False, removes a vertex.
+     *
+     * On vertex additions:
+     * - When the vertices set at i is False, sets the bit to True.
+     * - When the vertices set at i is True, picks a random index
+     * r in [0, max index_t), and if there is a collision follows the
+     * open addressing algorithm, seeking forward from r to the end
+     * of the PAGE holding r. If a 0 bit cannot be found in the range
+     * [r, PAGE_SIZE), the graph is expanded by PAGE_SIZE, and the bit
+     * in the newly allocated page at r%PAGE_SIZE is set.
+     */
+    index_t vertex(index_t, bool);
+
+    bool edge(index_t, index_t);
+    void edge(index_t, index_t, bool);
 
 public:  // copy/move semantics
-    Graph()
-    {
-        auto vopt = torch::TensorOptions().dtype(torch::kInt64)
-                                          .requires_grad(false);
-        vertices_ = torch::zeros(0, vopt);
-        auto eopt = torch::TensorOptions().dtype(torch::kUInt8)
-                                          .requires_grad(false);
-        edges_    = torch::zeros(0, eopt);
-    }
-    Graph(Graph const& other) = delete;
-    Graph(Graph&& other) = default;
-    Graph& operator=(Graph const& other) = delete;
+
+    /**
+     * A tensor is a thin object holding a pointer to the underlying storage.
+     * Hence passing a graph object by copy is fairly cheap, as it will only
+     * bump the reference counts of the underlying storage.
+     */
+    Graph();
+    Graph(Graph const& other) = default;
+    Graph(Graph&& other) = delete;
+    Graph& operator=(Graph const& other) = default;
     Graph& operator=(Graph&& other) = delete;
 
-    operator std::string()
-    {
-        return std::string("V=") + torch::str(vertices_) + std::string("\nE=") + torch::str(edges_);
-    }
-
-    torch::Tensor& vertices()
-    {
-        assertm(vertices_.sizes()[0] == edges_.sizes()[0], "");
-        return vertices_;
-    }
-
-    torch::Tensor& edges()
-    {
-        assertm(vertices_.sizes()[0] == edges_.sizes()[0], "");
-        return edges_;
-    }
-
-    torch::Tensor const& vertices() const
-    {
-        return const_cast<Graph*>(this)->vertices();
-    }
-
-    torch::Tensor const& edges() const
-    {
-        return const_cast<Graph*>(this)->edges();
-    }
-    
 private:
+
     /**
-     * The graph is data agnostic, consists of index sets to some container
-     * unknown to the graph.
+     * The graph is data agnostic, consists of bitmaps.
      *
-     * The vertex set is a 2d tensor, forming a matrix where rows are vertices
-     * and each vertex is a vector. It is the responsibility of an external
-     * function to map the indices of a vector to the container(s) holding
-     * the data.
+     * The vertices bitmap, identifies the presence of a vertex. Through reallocs
+     * and vertex deletions some bits will be zero. It is a 1D tensor.
      *
-     * The edge set is a 2d tensor, each row being a bitmap, forming a matrix
-     * that represents the graph. The indices of the bitmap correspond to the
-     * indices of some external container holding metadata for the edges.
+     * The edges bitmap is an adjacency matrix. It is a 2D tensor.
      */
     torch::Tensor vertices_;
     torch::Tensor edges_;
@@ -77,8 +76,12 @@ public:
         c.def(py::init<>());
         c.def("__repr__", +[](ptr_t<Graph> self){return (std::string)*self;});
         c.def("__str__", +[](ptr_t<Graph> self){return (std::string)*self;});
-        c.def("vertices", static_cast<torch::Tensor const& (T::*)() const>(&T::vertices));
-        c.def("edges",    static_cast<torch::Tensor const& (T::*)() const>(&T::edges));
+        c.def("vertices", static_cast<torch::Tensor (T::*)()>(&T::vertices));
+        c.def("edges",    static_cast<torch::Tensor (T::*)()>(&T::edges));
+        c.def("is_vertex", static_cast<bool(T::*)(index_t)>(&T::vertex));
+        c.def("vertex", static_cast<index_t(T::*)(index_t,bool)>(&T::vertex));
+        c.def("is_edge", static_cast<bool(T::*)(index_t,index_t)>(&T::edge));
+        c.def("edge", static_cast<void(T::*)(index_t,index_t,bool)>(&T::edge));
         return c;
     }
 #endif  // PYDEF
