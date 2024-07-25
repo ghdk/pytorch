@@ -11,9 +11,11 @@ namespace extensions
     template <typename T> using ptr_w = std::weak_ptr<T>;
     template <typename T> using ptr_u = std::unique_ptr<T>;
 
-    template <typename T>
-    concept Iterable = !std::is_void<typename std::decay<T>::type::iterator_category>::value;
-    template <Iterable T> using range_t = std::pair<T,T>;
+    // template <typename T>
+    // concept Iterable = !std::is_void<typename std::decay<T>::type::iterator_category>::value;
+    // template <Iterable T> using range_t = std::pair<T,T>;
+
+    template <typename T> using range_t = typename std::conditional<!std::is_void<typename std::decay<T>::type::iterator_category>::value, std::pair<T,T>, std::false_type>::type;
 
     static std::string demangle(std::string const& name)
     {

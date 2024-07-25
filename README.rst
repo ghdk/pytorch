@@ -38,7 +38,10 @@ update::
     git fetch --tags upstream viable/strict
     git merge upstream/viable/strict
     git checkout v1.13.0 -b e1.13.0
-    git cherry-pick <old-branch>
+    git rev-list --reverse --no-merges <ancestor of old branch>..<head of old branch> | git cherry-pick --stdin -X ours
+    git diff <old branch>:./extensions <new branch>:./extensions
+
+..  when asked for empty commits do -skip
 
 static analysis::
 
