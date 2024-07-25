@@ -51,8 +51,8 @@ namespace extensions { namespace iter
             if(truth_)
                 std::tie(value_, truth_) = func_();
         }
-        GeneratedIterator(GeneratedIterator const& other) = default;
-        GeneratedIterator(GeneratedIterator&& other) = delete;
+        GeneratedIterator(GeneratedIterator const& other) = delete;
+        GeneratedIterator(GeneratedIterator&& other) = default;
         GeneratedIterator& operator=(GeneratedIterator const& other) = delete;
         GeneratedIterator& operator=(GeneratedIterator&& other) = delete;
     private:  // members

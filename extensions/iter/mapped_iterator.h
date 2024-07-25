@@ -50,7 +50,7 @@ public:  // copy/move semantics
         : range_{std::move(begin), std::move(end)}
         , func_{f}
     {}
-    MappedIterator(MappedIterator const& other) = default;
+    MappedIterator(MappedIterator const& other) = delete;
     MappedIterator(MappedIterator&& other) = default;
     MappedIterator& operator=(MappedIterator const& other) = delete;
     MappedIterator& operator=(MappedIterator&& other) = delete;
