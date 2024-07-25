@@ -14,7 +14,7 @@ Graph extensions::graph::converter::add(Graph const& g, torch::Tensor vertex)
     auto& vertices = ret.vertices();
     auto& edges = ret.edges();
     vertices= torch::full({g.vertices().sizes()[0] + 1, std::max(g.vertices().sizes()[1], vertex.sizes()[0])},
-                          {extensions::graph::UNDEF},
+                          extensions::graph::UNDEF,
                           g.vertices().options());
     if(g.vertices().sizes()[0])
         vertices.slice(0 /* rows */,
@@ -48,11 +48,11 @@ Graph extensions::graph::converter::remove(Graph& g, size_t index)
     if(index >= g.vertices().sizes()[0])
         return ret;  // graph is empty, or index is out of bounds
     vertices = torch::full({g.vertices().sizes()[0] - 1, g.vertices().sizes()[1]},
-                           {extensions::graph::UNDEF},
+                           extensions::graph::UNDEF,
                            g.vertices().options());
     edges = torch::full({g.edges().sizes()[0] - 1, g.edges().sizes()[1]},
-                          {extensions::graph::UNDEF},
-                          g.edges().options());
+                        extensions::graph::UNDEF,
+                        g.edges().options());
     // NOTE: we never reduce the columns, we would need to verify that
     // all remaining vertices have UNDEF for last index.
     vertices.slice(0 /* rows */,

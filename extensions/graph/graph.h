@@ -4,7 +4,7 @@
 namespace extensions { namespace graph
 {
 
-static constexpr long long UNDEF = -1LL;
+static constexpr int64_t UNDEF = -1LL;
 
 struct Graph
 {
