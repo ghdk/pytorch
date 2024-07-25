@@ -47,7 +47,7 @@ class unittest(Command):
             except:
                 break
 
-extra_cpp_flags = ['-g', '-O0', '-std=c++20', '-DPYDEF']
+extra_cpp_flags = ['-g', '-O0', '-std=c++20', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_ld_flags = []
 
 setup(name='extensions',
