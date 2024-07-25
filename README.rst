@@ -8,7 +8,7 @@ python::
     pip install --upgrade pip setuptools wheel mypy
     pip freeze > /tmp/requirements.txt && pip uninstall -r /tmp/requirements.txt -y
     pip install -r ./requirements.txt
-    pip install matplotlib expecttest hypothesis mypy pytest pandas networkx scipy
+    pip install matplotlib expecttest hypothesis mypy pytest pandas networkx scipy lmdb
 
 build::
 
