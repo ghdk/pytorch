@@ -21,6 +21,9 @@ template <typename T> using feature_set = std::vector<T>;
 template <typename T> using feature_sparse_set = std::unordered_map<index_t, T>;
 using index_sparse_set = std::unordered_multimap<hash_t, index_t>;
 
+constexpr bool undirected = false;
+constexpr bool directed = true;
+
 /**
  * The size of the graph is calculated differently depending on whether the
  * graph is directed or not. Hence it depends on a feature set. The order
@@ -28,7 +31,7 @@ using index_sparse_set = std::unordered_multimap<hash_t, index_t>;
  * implementation minimal.
  */
 size_t order(Graph graph);  // #vertices
-size_t size(Graph graph);  // #edges
+size_t size(Graph graph, bool directed);  // #edges
 
 void FEATURE_PYBIND11_MODULE_IMPL(py::module_ m);
 

@@ -11,9 +11,9 @@ using namespace extensions::bitarray;
 accessor_t extensions::bitarray::set(accessor_t accessor, int64_t index, bool truth)
 {
     assertm(size(accessor) > index && index >= 0, "Index ", index, " is out of bounds [0,", size(accessor), ").");
-    auto i = index / (sizeof(cell_t) * CHAR_BIT);
-    auto j = index % (sizeof(cell_t) * CHAR_BIT);
-         j =         (sizeof(cell_t) * CHAR_BIT) - 1 - j;
+    auto i = index / cellsize;
+    auto j = index % cellsize;
+         j =         cellsize - 1 - j;
 
     cell_t mask = 0x1 << j;
     if(truth)
@@ -35,9 +35,9 @@ accessor_t extensions::bitarray::set(accessor_t accessor, int64_t index, bool tr
 bool extensions::bitarray::get(accessor_t accessor, int64_t index)
 {
     assertm(size(accessor) > index && index >= 0, "Index ", index, " is out of bounds [0,", size(accessor), ").");
-    auto i = index / (sizeof(cell_t) * CHAR_BIT);
-    auto j = index % (sizeof(cell_t) * CHAR_BIT);
-         j =         (sizeof(cell_t) * CHAR_BIT) - 1 - j;
+    auto i = index / cellsize;
+    auto j = index % cellsize;
+         j =         cellsize - 1 - j;
 
     cell_t mask = 0x1 << j;
     cell_t value = accessor[i];
