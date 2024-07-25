@@ -8,7 +8,7 @@ namespace extensions { namespace iter
     class GeneratedIterator
     {
     public:  // typedefs
-        using generator_t = std::function<std::pair<ValueType, bool>(void)>;
+        using generator_t = std::function<std::optional<ValueType>(void)>;
     public:  // iterator
         using iterator_category = std::input_iterator_tag;
         using value_type = ValueType;
@@ -18,7 +18,7 @@ namespace extensions { namespace iter
     public:  // methods
         bool operator==(const GeneratedIterator& other) const
         {
-            return truth_ == other.truth_;
+            return value_.has_value() == other.value_.has_value();
         }
 
         bool operator!=(const GeneratedIterator& other) const
@@ -28,30 +28,29 @@ namespace extensions { namespace iter
 
         value_type operator*()
         {
-            return value_;
+            return value_.value();
         }
 
         inline const GeneratedIterator& operator++()
         {
-            if(truth_)
-                std::tie(value_, truth_) = func_();
+            if(value_)
+                value_ = func_();
             return *this;
         }
     public:  // copy/move semantics
         explicit GeneratedIterator(generator_t const& func, bool truth)
-        : func_{func}, truth_{truth}
+        : func_{func}
         {
-            if(truth_)
-                std::tie(value_, truth_) = func_();
+            if(truth)
+                value_ = func_();
         }
         GeneratedIterator(GeneratedIterator const& other) = delete;
         GeneratedIterator(GeneratedIterator&& other) = default;
         GeneratedIterator& operator=(GeneratedIterator const& other) = delete;
         GeneratedIterator& operator=(GeneratedIterator&& other) = delete;
     private:  // members
-        generator_t func_;
-        bool truth_;
-        value_type value_;
+        generator_t const& func_;
+        std::optional<value_type> value_;
     };
 
     template<typename ValueType>
@@ -71,33 +70,46 @@ namespace extensions { namespace iter
 
         iterator_t begin()
         {
-            return static_cast<GeneratedEnumerable const&>(*this).begin();
+            return const_cast<GeneratedEnumerable const*>(this)->begin();
         }
         iterator_t end()
         {
-            return static_cast<GeneratedEnumerable const&>(*this).end();
+            return const_cast<GeneratedEnumerable const*>(this)->end();
         }
     public:  // copy/move semantics
-        explicit GeneratedEnumerable(typename iterator_t::generator_t&& func)
-        : func_{std::move(func)}
+        explicit GeneratedEnumerable(typename iterator_t::generator_t const& f)
+        : func_{f}
         {}
-        explicit GeneratedEnumerable(typename iterator_t::generator_t const& func)
-        : func_{func}
-        {}
-        GeneratedEnumerable(GeneratedEnumerable const& other) = default;
-        GeneratedEnumerable(GeneratedEnumerable&& other) = default;
+        GeneratedEnumerable(GeneratedEnumerable const& other) = delete;
+        GeneratedEnumerable(GeneratedEnumerable&& other) = delete;
         GeneratedEnumerable& operator=(GeneratedEnumerable const& other) = delete;
         GeneratedEnumerable& operator=(GeneratedEnumerable&& other) = delete;
     private:  // members
-        typename iterator_t::generator_t func_;
+        typename iterator_t::generator_t const& func_;
 
 #ifdef PYDEF
-public:  // python
+
+        /**
+         * pybind11 creates a temporary object when wrapping callbacks. The
+         * enumerable needs to hold a reference to a callback instead. When
+         * used with pybind11 the enumerable takes ownership of the temporary
+         * object referring to the callback, but not the callback.
+         */
+
+    private:
+        typename iterator_t::generator_t func_wrapper_;
+    public:  // python
+
+        explicit GeneratedEnumerable(typename iterator_t::generator_t&& f)
+        : func_{func_wrapper_}
+        , func_wrapper_{std::move(f)}
+        {}
+
         template <typename PY>
         static PY def(PY& c)
         {
             using T = typename PY::type;
-            c.def(py::init<typename iterator_t::generator_t const&>());
+            c.def(py::init<typename T::iterator_t::generator_t&&>());
             c.def("__iter__", [](ptr_t<T> e){ return py::make_iterator(e->begin(), e->end()); },
                   py::keep_alive<0, 1>());
             return c;

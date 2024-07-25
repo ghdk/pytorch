@@ -19,7 +19,8 @@ class Test(unittest.TestCase):
         r.p(dim.y, a)
         r.p(dim.y, b)
         r.p(dim.y, c)
-        self.assertEqual([a,b], [x for x in FGI(GI(CTRV(r)), MultiTree.__is__)])
+        e = GI(CTRV(r))
+        self.assertEqual([a,b], [x for x in FGI(e, MultiTree.__is__)])
 
     def test_mapped_iterator(self):
         r = Tree()
@@ -29,7 +30,8 @@ class Test(unittest.TestCase):
         r.p(dim.y, a)
         r.p(dim.y, b)
         r.p(dim.y, c)
-        self.assertEqual([a,b,None], [x for x in MGI(GI(CTRV(r)), MultiTree.__of__)])
+        e = GI(CTRV(r))
+        self.assertEqual([a,b,None], [x for x in MGI(e, MultiTree.__of__)])
 
 if '__main__' == __name__:
     unittest.main(verbosity=2)
