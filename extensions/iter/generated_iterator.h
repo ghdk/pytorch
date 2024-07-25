@@ -37,13 +37,6 @@ namespace extensions { namespace iter
                 std::tie(value_, truth_) = func_();
             return *this;
         }
-
-        GeneratedIterator const& operator++(int)
-        {
-            GeneratedIterator ret = *this;
-            ++(*this);
-            return ret;
-        }
     public:  // copy/move semantics
         explicit GeneratedIterator(generator_t const& func, bool truth)
         : func_{func}, truth_{truth}
