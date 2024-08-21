@@ -8,6 +8,11 @@
  * - A low number of named DBs per file is preferable, see mdb_env_set_maxdbs.
  * - Direct modification of DB buffers is not allowed, see MDB_val.
  * - Values are limited to 4GiB, see MDB_val.
+ * - Keys are lexicographically sorted, the cursor might not return keys in
+ *   numerical order.
+ * - One transaction, plus its children, per thread. Preferable one writer,
+ *   many readers per process.
+ * - One environment per database per process.
  *
  * Larger buffers are split into PAGE_SIZE chunks before they are stored
  * in the DB. Hence we need to associate a single key with multiple data chunks.
@@ -130,16 +135,61 @@ constexpr std::array SCHEMA = {T_("VF"),
                                T_("AM"),
                                T_("VS")};
 
-constexpr size_t VERTEX_FEATURE = 0;
-constexpr size_t EDGE_FEATURE = 3;
-constexpr size_t GRAPH_FEATURE = 6;
-constexpr size_t ADJACENCY_MATRIX = 9;
-constexpr size_t VERTEX_SET = 12;
+constexpr size_t H(const size_t n)
+{
+    assertm(0 == n % 3 && n < SCHEMA.size(), n);
+    return n+1;
+}
+constexpr size_t L(const size_t n)
+{
+    assertm(0 == n % 3 && n < SCHEMA.size(), n);
+    return n+2;
+}
 
-template <size_t T> constexpr size_t H = T+1;
-template <size_t T> constexpr size_t L = T+2;
+constexpr size_t VERTEX_FEATURE     = 0;
+constexpr size_t VERTEX_FEATURE_H   = H(VERTEX_FEATURE);
+constexpr size_t VERTEX_FEATURE_L   = L(VERTEX_FEATURE);
+constexpr size_t EDGE_FEATURE       = 3;
+constexpr size_t EDGE_FEATURE_H     = H(EDGE_FEATURE);
+constexpr size_t EDGE_FEATURE_L     = L(EDGE_FEATURE);
+constexpr size_t GRAPH_FEATURE      = 6;
+constexpr size_t GRAPH_FEATURE_H    = H(GRAPH_FEATURE);
+constexpr size_t GRAPH_FEATURE_L    = L(GRAPH_FEATURE);
+constexpr size_t ADJACENCY_MATRIX   = 9;
+constexpr size_t ADJACENCY_MATRIX_H = H(ADJACENCY_MATRIX);
+constexpr size_t ADJACENCY_MATRIX_L = L(ADJACENCY_MATRIX);
+constexpr size_t VERTEX_SET         = 12;
+constexpr size_t VERTEX_SET_H       = H(VERTEX_SET);
+constexpr size_t VERTEX_SET_L       = L(VERTEX_SET);
 
-template<typename K, size_t N=1>
+struct DatabaseSet
+{
+public:
+    graphdb::Database main_;
+    graphdb::Database hash_;
+    graphdb::Database list_;
+
+public:
+    DatabaseSet(graphdb::Transaction const& txn, DatabaseSet const& parent)
+    : main_{txn, parent.main_}
+    , hash_{txn, parent.hash_}
+    , list_{txn, parent.list_}
+    {}
+
+    DatabaseSet(graphdb::Transaction const& txn, size_t db, unsigned int flags)
+    : main_{txn, txn.env_.schema_[db],    flags}
+    , hash_{txn, txn.env_.schema_[H(db)], flags}
+    , list_{txn, txn.env_.schema_[L(db)], flags}
+    {}
+
+    DatabaseSet() = delete;
+    DatabaseSet(DatabaseSet const&) = delete;
+    DatabaseSet(DatabaseSet&&) = delete;
+    DatabaseSet& operator=(DatabaseSet const&) = delete;
+    DatabaseSet& operator=(DatabaseSet&&) = delete;
+};
+
+template<typename K, size_t N=1, typename = std::enable_if_t<1 <= N && N <= 3>>
 struct key_t
 {
 public:
@@ -149,9 +199,10 @@ private:
      * [1,3]: keys of the feature tables
      * [2]: keys of the linked list tables
      */
-    static_assert(1 <= N && N <= 3);
     std::array<value_type, N> data_ = {0};
 public:
+
+    constexpr size_t size() { return data_.size(); }
 
     bool operator==(key_t const& other) noexcept
     {
@@ -170,35 +221,35 @@ public:
 
     value_type& graph(){ return data_[0]; }
 
+    template <size_t M = N, typename = std::enable_if_t<M >= 2>>
     value_type& vertex()
     {
-        static_assert(N >= 2);
         return data_[1];
     }
 
+    template <size_t M = N, typename = std::enable_if_t<M == 3>>
     value_type& edge()
     {
-        static_assert(N == 3);
         return data_[1];
     }
 
+    template <size_t M = N, typename = std::enable_if_t<M >= 2>>
     value_type& attribute()
     {
-        static_assert(N >= 2);
         return data_[N - 1];
     }
 
 public:  // linked list
 
+    template <size_t M = N, typename = std::enable_if_t<M == 2>>
     value_type& head()
     {
-        static_assert(N == 2);
         return data_[0];
     }
 
+    template <size_t M = N, typename = std::enable_if_t<M == 2>>
     value_type& tail()
     {
-        static_assert(N == 2);
         return data_[1];
     }
 
@@ -222,6 +273,14 @@ public:
     }
 
 public:  // const
+    constexpr size_t size() const
+    {
+        return const_cast<key_t*>(this)->size();
+    }
+    const value_type* data() const noexcept
+    {
+        return const_cast<key_t*>(this)->data();
+    }
     bool operator==(key_t const& other) const noexcept
     {
         return const_cast<key_t*>(this)->operator==(other);
@@ -240,15 +299,22 @@ public:  // const
     }
 };
 
-using list_key_t = key_t<graph::feature::hash_t, 2>;
+/*
+ * The design decision is for the key_t to be a type whose size can be obtained
+ * through sizeof. This allows us to instantiate an mdb_view of key_t as
+ * mdb_view<key_t>(&key,1) or
+ * mdb_view<typename key_t::value_type>(key.data(), key.size()).
+ *
+ * The following definitions also confirm the correct size of the various
+ * key_t instantiations.
+ */
 
-using vertex_feature_key_t = key_t<graph::feature::index_t, 3>;
-using edge_feature_key_t = key_t<graph::feature::index_t, 3>;
-using graph_feature_key_t = key_t<graph::feature::index_t, 2>;
-using graph_adj_mtx_key_t = key_t<graph::feature::index_t, 2>;
-using graph_vtx_set_key_t = key_t<graph::feature::index_t, 1>;
-
-static_assert(sizeof(list_key_t) == 2 * sizeof(typename list_key_t::value_type));  // Ensure key has no padding.
+using list_key_t           = std::enable_if_t<sizeof(key_t<size_t, 2>) == 2 * sizeof(size_t), key_t<size_t, 2>>;
+using vertex_feature_key_t = std::enable_if_t<sizeof(key_t<size_t, 3>) == 3 * sizeof(size_t), key_t<size_t, 3>>;
+using edge_feature_key_t   = std::enable_if_t<sizeof(key_t<size_t, 3>) == 3 * sizeof(size_t), key_t<size_t, 3>>;
+using graph_feature_key_t  = std::enable_if_t<sizeof(key_t<size_t, 2>) == 2 * sizeof(size_t), key_t<size_t, 2>>;
+using graph_adj_mtx_key_t  = std::enable_if_t<sizeof(key_t<size_t, 2>) == 2 * sizeof(size_t), key_t<size_t, 2>>;
+using graph_vtx_set_key_t  = std::enable_if_t<sizeof(key_t<size_t, 1>) == 1 * sizeof(size_t), key_t<size_t, 1>>;
 
 using meta_key_t = list_key_t;
 using meta_page_t = meta_key_t::value_type;
@@ -267,6 +333,17 @@ using is_key_t = std::enable_if_t<std::is_constructible_v<std::variant<vertex_fe
                                                                        graph_feature_key_t,  // covers graph_adj_mtx_key_t, list_key_t
                                                                        graph_vtx_set_key_t>,
                                                           K>, void>;
+
+template<typename K>
+using is_graph_vtx_set_key_t = std::enable_if_t<std::is_same_v<K, graph_vtx_set_key_t>, void>;
+
+template<typename K>
+using is_graph_adj_mtx_key_t = std::enable_if_t<std::is_same_v<K, graph_adj_mtx_key_t>, void>;
+
+template<typename K>
+using is_feature_key_t = std::enable_if_t<std::is_constructible_v<std::variant<vertex_feature_key_t, // covers edge_feature_key_t
+                                                                               graph_feature_key_t>,
+                                                                  K>, void>;
 
 }  // namespace schema
 
@@ -293,6 +370,7 @@ namespace flags
     namespace put
     {
         constexpr unsigned int DEFAULT = 0;
+        constexpr unsigned int NOOVERWRITE = MDB_NOOVERWRITE;
     }
 }  // namespace flags
 

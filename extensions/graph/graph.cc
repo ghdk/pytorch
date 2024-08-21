@@ -1,149 +1,94 @@
+extern "C"
+{
+#include "lmdb.h"
+}
+
 #include "../system.h"
-using namespace extensions;
-#include "feature.h"
-using namespace extensions::graph::feature;
-#include "graph.h"
-using namespace extensions::graph;
 #include "../bitarray/bitarray.h"
-using namespace extensions::bitarray;
+#include "../iter/generated_iterator.h"
+#include "../iter/iter.h"
+#include "../graphdb/db.h"
+#include "../graphdb/schema.h"
+#include "../graphdb/envpool.h"
+#include "../graphdb/graphdb.h"
+#include "feature.h"
+#include "storage.h"
+#include "graph.h"
 
-Graph::Graph()
+extensions::graph::Graph::operator std::string()
 {
-    auto vopt = torch::TensorOptions().dtype(torch::kUInt8)
-                                      .requires_grad(false);
-    vertices_ = torch::zeros(extensions::page_size, vopt);
-    auto eopt = torch::TensorOptions().dtype(torch::kUInt8)
-                                      .requires_grad(false);
-    edges_    = torch::zeros({extensions::page_size * bitarray::cellsize, extensions::page_size}, eopt);
+    std::string ret = "";
+    ret += "V=";
+    for(auto v: this->vertices())
+        ret += std::to_string(v) + ", ";
+    ret += "\nE=";
+    for(auto e: this->edges())
+        ret += "(" + std::to_string(std::get<0>(e)) + "," + std::to_string(std::get<1>(e)) + ")" + ", ";
+    ret += "\n";
+    return ret;
 }
 
-Graph::operator std::string()
+extensions::iter::GeneratedEnumerable<extensions::graph::feature::index_t> extensions::graph::Graph::vertices()
 {
-    return std::string("V=") + torch::str(vertices_) + std::string("\nE=") + torch::str(edges_);
+    return storage_->vertices();
+}
+extensions::iter::GeneratedEnumerable<std::pair<extensions::graph::feature::index_t, extensions::graph::feature::index_t>> extensions::graph::Graph::edges()
+{
+    return storage_->edges();
 }
 
-torch::Tensor Graph::vertices()
-{
-    assertm(bitarray::size(vertices_) == edges_.sizes()[0], "");
-    return vertices_;
-}
-
-torch::Tensor Graph::edges()
-{
-    assertm(bitarray::size(vertices_) == edges_.sizes()[0], "");
-    return edges_;
-}
-
-const torch::Tensor Graph::vertices() const
+extensions::iter::GeneratedEnumerable<extensions::graph::feature::index_t> extensions::graph::Graph::vertices() const
 {
     return const_cast<Graph*>(this)->vertices();
 }
-
-const torch::Tensor Graph::edges() const
+extensions::iter::GeneratedEnumerable<std::pair<extensions::graph::feature::index_t, extensions::graph::feature::index_t>> extensions::graph::Graph::edges() const
 {
     return const_cast<Graph*>(this)->edges();
 }
 
-bool Graph::vertex(index_t i)
+bool extensions::graph::Graph::vertex(feature::index_t i)
 {
-    return get(vertices_, i);
+    return storage_->vertex(i);
 }
-index_t Graph::vertex(index_t index, bool truth)
+extensions::graph::feature::index_t extensions::graph::Graph::vertex(feature::index_t index, bool truth)
 {
-    const index_t max = bitarray::size(vertices_) - 1;
-
-    assertm(max >= index, "Index ", index, " is out of bounds [0,", max, ").");
-    index_t ret = index;
-
-    if(truth)
-    {
-        bool needs_expansion = false;
-        index_t step = 0;
-
-        std::random_device r;
-        std::default_random_engine e(r());
-        std::uniform_int_distribution<index_t> d(0, max);
-
-        while(true)
-        {
-            if(!get(vertices_, ret + step)) break;
-            if((ret || step) && !((ret + step) % extensions::page_size))
-            {
-                needs_expansion = true;
-                step = 0;
-                ret = max + 1 + (ret % extensions::page_size);
-                break;
-            }
-            if(ret == index)
-            {
-                ret = d(e);
-                step = 0;
-            }
-            else
-                step += 1;
-        }
-        if(needs_expansion)
-        {
-            torch::Tensor vertices = torch::full(vertices_.sizes()[0] + extensions::page_size,
-                                                 0,
-                                                 vertices_.options());
-            torch::Tensor edges = torch::full({bitarray::size(vertices), vertices.sizes()[0]},
-                                              0,
-                                              edges_.options());
-            vertices.slice(0 /* rows */,
-                           0 /* start row */,
-                           vertices_.sizes()[0] /* end row */) = vertices_.slice(0, 0, vertices_.sizes()[0]);
-            edges.slice(0 /* rows */,
-                        0 /* start row */,
-                        edges_.sizes()[0] /* end row */)
-                 .slice(1 /* columns */,
-                        0 /* start column */,
-                        edges_.sizes()[1] /* end column */) = edges_.slice(0, 0, edges_.sizes()[0])
-                                                                    .slice(1, 0, edges_.sizes()[1]);
-            vertices_ = vertices;
-            edges_ = edges;
-        }
-        ret = ret + step;
-        set(vertices_, ret, truth);
-    }
-    else  // !truth
-    {
-        set(vertices_, ret, truth);
-        auto adjm = edges_.accessor<bitarray::cell_t, 2>();
-        for(size_t i = 0; i < bitarray::size(vertices_); ++i)
-        {
-            if(i == ret)
-            {
-                for(size_t k = 0; k < adjm[i].size(0); ++k)
-                    adjm[i][k] = 0;
-            }
-            else
-                set(adjm[i], ret, truth);
-        }
-    }
-
-    return ret;
+    return storage_->vertex(index,truth);
 }
-bool Graph::edge(index_t i, index_t j)
+bool extensions::graph::Graph::edge(feature::index_t i, feature::index_t j)
 {
-    return get(edges_[i], j);
+    return storage_->edge(i,j);
 }
-
-void Graph::edge(index_t i, index_t j, bool truth)
+void extensions::graph::Graph::edge(feature::index_t i, feature::index_t j, bool truth)
 {
-    auto tensor = edges_[i];
-    set(tensor, j, truth);
+    storage_->edge(i,j,truth);
 }
 
 void PYBIND11_MODULE_IMPL(py::module_ m)
 {
-    m.attr("PAGE_SIZE") = pybind11::int_(extensions::page_size);
-    auto c = py::class_<Graph, ptr_t<Graph>>(m, "Graph");
-    Graph::def(c);
+    auto c = py::class_<extensions::graph::Graph, extensions::ptr_t<extensions::graph::Graph>>(m, "Graph");
+    extensions::graph::Graph::def(c);
+    m.def("make_graph", static_cast<extensions::graph::Graph(*)(void)>(&extensions::graph::Graph::make_graph));
+    m.def("make_graph_db", +[](std::string filename, extensions::graph::feature::index_t graph)
+          {
+            extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+            return extensions::graph::Graph::make_graph(env, graph);
+          });
+
+    {
+        using gen_v = extensions::iter::GeneratedEnumerable<extensions::graph::feature::index_t>;
+        auto c = py::class_<gen_v, extensions::ptr_t<gen_v>>(m, "GeneratedEnumerableVertex");
+        gen_v::def(c);
+    }
+
+    {
+        using gen_e = extensions::iter::GeneratedEnumerable<std::pair<extensions::graph::feature::index_t, extensions::graph::feature::index_t>>;
+        auto c = py::class_<gen_e, extensions::ptr_t<gen_e>>(m, "GeneratedEnumerableEdge");
+        gen_e::def(c);
+    }
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
     PYBIND11_MODULE_IMPL(m);
-    FEATURE_PYBIND11_MODULE_IMPL(m);
+    extensions::graph::feature::FEATURE_PYBIND11_MODULE_IMPL(m);
 }

@@ -80,37 +80,32 @@ namespace extensions { namespace iter
         explicit GeneratedEnumerable(typename iterator_t::generator_t const& f)
         : func_{f}
         {}
+        explicit GeneratedEnumerable(typename iterator_t::generator_t&& f)
+        : func_{std::move(f)}
+        {}
         GeneratedEnumerable(GeneratedEnumerable const& other) = delete;
-        GeneratedEnumerable(GeneratedEnumerable&& other) = delete;
+        GeneratedEnumerable(GeneratedEnumerable&& other) = default;
         GeneratedEnumerable& operator=(GeneratedEnumerable const& other) = delete;
         GeneratedEnumerable& operator=(GeneratedEnumerable&& other) = delete;
     private:  // members
-        typename iterator_t::generator_t const& func_;
+        typename iterator_t::generator_t func_;
 
 #ifdef PYDEF
 
         /**
-         * pybind11 creates a temporary object when wrapping callbacks. The
-         * enumerable needs to hold a reference to a callback instead. When
+         * NB. pybind11 creates a temporary object when wrapping callbacks. When
          * used with pybind11 the enumerable takes ownership of the temporary
          * object referring to the callback, but not the callback.
          */
 
-    private:
-        typename iterator_t::generator_t func_wrapper_;
-    public:  // python
-
-        explicit GeneratedEnumerable(typename iterator_t::generator_t&& f)
-        : func_{func_wrapper_}
-        , func_wrapper_{std::move(f)}
-        {}
+    public:
 
         template <typename PY>
         static PY def(PY& c)
         {
             using T = typename PY::type;
             c.def(py::init<typename T::iterator_t::generator_t&&>());
-            c.def("__iter__", [](ptr_t<T> e){ return py::make_iterator(e->begin(), e->end()); },
+            c.def("__iter__", +[](ptr_t<T> e){ return py::make_iterator(e->begin(), e->end()); },
                   py::keep_alive<0, 1>());
             return c;
         }

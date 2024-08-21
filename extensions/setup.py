@@ -47,7 +47,7 @@ class unittest(Command):
         tests = []
         tests_failed = []
         start_dir = '.'
-        pattern = '*_test.py'
+        pattern = 'test_*.py'
         for dirpath, dirnames, filenames in os.walk(start_dir):
             for filename in fnmatch.filter(filenames, pattern):
                 assert os.path.exists(dirpath+"/__init__.py"), "the directory " + dirpath + " without __init__.py contains the unit tests " + filename + "!"
@@ -95,7 +95,7 @@ lmdb_conf_flags = ([f'-I{EXT_USE_LMDB}/include'],
 
 gsl_conf_flags = gsl()
 
-extra_cpp_flags = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
+extra_cpp_flags = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-ferror-limit=1', '-fvisibility=hidden', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_cpp_flags += gsl_conf_flags
 extra_ld_flags = []
 
@@ -148,12 +148,13 @@ setup(name='extensions',
                    cpp_extension.CppExtension('graph.graph',
                                               sources=['graph/graph.cc',
                                                        'graph/feature.cc'],
-                                              runtime_library_dirs=['$ORIGIN/../bitarray'],
+                                              runtime_library_dirs=['$ORIGIN/../bitarray'] + lmdb_conf_flags[1],
                                               library_dirs= []
                                                           + ([f'{buildlib()}/bitarray'] if IS_LINUX else []),
-                                              extra_compile_args=extra_cpp_flags,
+                                              extra_compile_args=extra_cpp_flags + lmdb_conf_flags[0],
                                               extra_link_args= extra_ld_flags
-                                                             + (['-l:bitarray.so'] if IS_LINUX else [])),
+                                                             + (['-l:bitarray.so'] if IS_LINUX else [])
+                                                             + lmdb_conf_flags[2]),
                    cpp_extension.CppExtension('graphdb.graphdb',
                                               sources=['graphdb/graphdb.cc'],
                                               runtime_library_dirs = [] + lmdb_conf_flags[1],

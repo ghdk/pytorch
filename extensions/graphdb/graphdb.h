@@ -7,17 +7,20 @@ namespace list  // Transactions that manage the linked list DBs.
 {
 
 /*
- * Finds the next available slot in the DB, following the open addressing
- * algorithm. It receives a hint as a parameter, if the key is not present
- * in the DB it returns the hint. If there is a collision, it returns a
- * random number r in [0, N*PAGE_SIZE*CHAR_BIT). If there is a collision with r,
- * then seeks forward up to PAGE_SIZE*CHAR_BIT for an empty slot.
- * If a slot cannot be found, extends N by one, ie. extends the hypothetical
- * space by one page, and returns
- * (N-1)*PAGE_SIZE*CHAR_BIT + r%(PAGE_SIZE*CHAR_BIT).
+ * Finds the next available slot in the DB to use as a head of a list,
+ * following the open addressing algorithm. As a parameter it receives
+ * a key to use as a hint for the placement.
+ *
+ * - If the key is not present in the DB it returns the hint.
+ * - If there is a collision, it returns a random number r in
+ *   [0, N*PAGE_SIZE*CHAR_BIT), where N is the number of pages.
+ * - If there is a collision with r, then seeks forward up to
+ *   PAGE_SIZE*CHAR_BIT for an empty slot. If a slot cannot be found,
+ *   extends N by one, ie. extends the hypothetical space by one page,
+ *   and returns N*PAGE_SIZE*CHAR_BIT + r%(PAGE_SIZE*CHAR_BIT).
  */
-template<typename K, typename V, typename = schema::is_list_key_t<K>>
-void find_slot(graphdb::Database const& parent, graphdb::mdb_view<K> hint, graphdb::mdb_view<V> value)
+template<typename K, typename = schema::is_list_key_t<K>>
+void find_head(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
 {
     assertm(0 == hint.begin()->tail(), hint.begin()->tail());
 
@@ -34,6 +37,7 @@ void find_slot(graphdb::Database const& parent, graphdb::mdb_view<K> hint, graph
     mdb_view<schema::meta_page_t> meta_v;
 
     rc = db.get(meta_k, meta_v);
+    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
     if(MDB_SUCCESS == rc)
         N = *(meta_v.begin());
 
@@ -45,30 +49,35 @@ void find_slot(graphdb::Database const& parent, graphdb::mdb_view<K> hint, graph
     std::default_random_engine e(r());
     std::uniform_int_distribution<typename K::value_type> d(0, max);
 
-    while(true)
     {
-        K query = {ret + step, 0};
-        if(query.head() <= max && query.head() != schema::RESERVED)
-        {
-            mdb_view<K> key(&query, 1);
+        Cursor cursor(txn, db);
 
-            db.get(key, value);
-            if(MDB_NOTFOUND == rc) break;
-        }
-        if((ret || step) && !(query.head() % page_sz))
+        while(true)
         {
-            N += 1;
-            step = 0;
-            ret = max + 1 + (ret % page_sz);
-            break;
+            K query = {ret + step, 0};
+            if(query.head() <= max && query.head() != schema::RESERVED)
+            {
+                mdb_view<K> iter_k(&query, 1);
+                mdb_view<uint8_t> iter_v;
+
+                rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
+                if(MDB_NOTFOUND == rc) break;
+            }
+            if((ret || step) && !(query.head() % page_sz))
+            {
+                N += 1;
+                step = 0;
+                ret = max + 1 + (ret % page_sz);
+                break;
+            }
+            if(ret == hint.begin()->head())
+            {
+                ret = d(e);
+                step = 0;
+            }
+            else
+                step += 1;
         }
-        if(ret == hint.begin()->head())
-        {
-            ret = d(e);
-            step = 0;
-        }
-        else
-            step += 1;
     }
 
     meta_v = mdb_view<schema::meta_page_t>(&N, 1);
@@ -76,6 +85,54 @@ void find_slot(graphdb::Database const& parent, graphdb::mdb_view<K> hint, graph
     assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
 
     *(hint.begin()) = {ret + step, 0};
+}
+
+template<typename K>
+void find_head(graphdb::Database const& parent, K& hint)
+{
+    mdb_view<K> hint_v(&hint, 1);
+    find_head(parent, hint_v);
+}
+
+/**
+ * Through the iter returns the length of the list, through sz the total size
+ * of the stored buffer.
+ */
+template<typename K, typename = schema::is_list_key_t<K>>
+void size(graphdb::Database const& parent, graphdb::mdb_view<K> iter, mdb_view<size_t> sz)
+{
+    int rc = 0;
+
+    assertm(0 != iter.begin()->head(), iter.begin()->head());
+
+    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
+    Database db(txn, parent);
+
+    {
+        Cursor cursor(txn, db);
+        mdb_view<K> iter_c;
+        mdb_view<uint8_t> iter_v;
+
+        for(typename K::value_type i = 0; i < schema::LIST_TAIL_MAX; i++)
+        {
+            iter.begin()->tail() = i;
+            iter_c = iter;
+            rc = cursor.get(iter_c, iter_v, MDB_cursor_op::MDB_SET);
+            if(MDB_NOTFOUND == rc) break;
+            if(iter.begin()->head() != iter_c.begin()->head()) break;
+            *(sz.begin()) += iter_v.size();
+        }
+    }
+
+    assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
+}
+
+template<typename K>
+void size(graphdb::Database const& parent, K& iter, size_t& sz)
+{
+    graphdb::mdb_view<K> iter_v(&iter, 1);
+    graphdb::mdb_view<size_t> sz_v(&sz, 1);
+    size(parent, iter_v, sz_v);
 }
 
 /**
@@ -115,6 +172,31 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
 
 }
 
+template<typename K, typename V>
+void write(graphdb::Database const& parent, K& head, V& value)
+{
+    const graphdb::mdb_view<K> head_v(&head, 1);
+
+    if constexpr(std::is_same_v<V, torch::Tensor>)
+    {
+        torch::Tensor tensor = value;
+        if(torch::kUInt8 == tensor.dtype())
+        {
+            mdb_view<uint8_t> value_v(tensor.data_ptr<uint8_t>(), tensor.numel());
+            write(parent, head_v, value_v);
+        }
+        else
+            assertm(false, tensor.dtype());
+    }
+    else if constexpr (extensions::is_contiguous<V>::value)
+    {
+        const graphdb::mdb_view<typename V::value_type> value_v(value.data(), value.size());
+        write(parent, head_v, value_v);
+    }
+    else
+        static_assert(extensions::false_always<K,V>::value);
+}
+
 /**
  * Loads the pages of a linked list into the single buffer pointed by the value.
  */
@@ -134,53 +216,103 @@ void read(graphdb::Database const& parent, const graphdb::mdb_view<K> head, grap
     Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
     Database db(txn, parent);
 
-    K iter = *(head.begin());
-    mdb_view<K> iter_k(&iter, 1);
-    mdb_view<V> iter_v;
-    size_t chunk = extensions::page_size / sizeof(V);
-
-    for(size_t i = 0; i < schema::LIST_TAIL_MAX; i++)
     {
-        iter.tail() = i;
-        rc = db.get(iter_k, iter_v);
-        if(iter.tail() == head.begin()->tail())
-            assertm(MDB_SUCCESS == rc ,rc);  // node must be in the DB.
-        if(MDB_NOTFOUND == rc)
-            break;
-        assertm(value.size() >= i * chunk + iter_v.size(), i, sizeof(V), value.size());
-        memcpy((void*)(value.data() + i * chunk), (void*)(iter_v.data()), iter_v.size() * sizeof(V));
+        graphdb::Cursor cursor(txn, db);
+
+        K iter = *(head.begin());
+        mdb_view<K> iter_k(&iter, 1);
+        mdb_view<V> iter_v;
+        size_t chunk = extensions::page_size / sizeof(V);
+
+        for(size_t i = 0; i < schema::LIST_TAIL_MAX; i++)
+        {
+            iter.tail() = i;
+            rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
+            if(i == head.begin()->tail())
+                assertm(MDB_SUCCESS == rc ,rc);  // node must be in the DB.
+            if(MDB_NOTFOUND == rc) break;
+            if(iter.head() != iter_k.begin()->head()) break;
+            assertm(value.size() >= i * chunk + iter_v.size(), i, sizeof(V), value.size());
+            memcpy((void*)(value.data() + i * chunk), (void*)(iter_v.data()), iter_v.size() * sizeof(V));
+        }
     }
 
     assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
 }
 
+template<typename K, typename V>
+void read(graphdb::Database const& parent, K& head, V& value)
+{
+    const graphdb::mdb_view<K> head_v(&head, 1);
+
+    if constexpr(extensions::is_contiguous<V>::value)
+    {
+        graphdb::mdb_view<typename V::value_type> value_v(value.data(), value.size());
+        read(parent, head_v, value_v);
+    }
+    else
+        static_assert(extensions::false_always<K,V>::value);
+}
+
+/**
+ * Expands, a potentially empty, linked list by a single node.
+ */
 template<typename K, typename V, typename = schema::is_list_key_t<K>>
-void append(graphdb::Database const& parent, graphdb::mdb_view<K> node, graphdb::mdb_view<V> value)
+void expand(graphdb::Database const& parent, graphdb::mdb_view<K> node, graphdb::mdb_view<V> value)
 {
     assertm(0 != node.begin()->head(), node.begin()->head());
     assertm(value.size() * sizeof(V) <= extensions::page_size, value.size());
 
+    int rc = 0;
+
     Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
     Database db(txn, parent);
 
-    int rc = 0;
-    K iter = *(node.begin());
-    mdb_view<K> iter_k(&iter, 1);
-    mdb_view<V> iter_v;
-
-    for(auto i = iter.tail(); i < schema::LIST_TAIL_MAX; ++i)
     {
-        iter.tail() = i;
-        rc = db.get(iter_k, iter_v);
-        if(iter.tail() == node.begin()->tail())
-            assertm(MDB_SUCCESS == rc ,rc);  // node must be in the DB.
-        if(MDB_NOTFOUND == rc)
+        graphdb::Cursor cursor(txn, db);
+
+        K iter = *(node.begin());
+        mdb_view<K> iter_k(&iter, 1);
+        mdb_view<V> iter_v;
+
+        for(auto i = iter.tail(); i < schema::LIST_TAIL_MAX; ++i)
         {
-            assertm(MDB_SUCCESS == (rc = db.put(iter_k, value, flags::put::DEFAULT)), rc);
-            break;
+            iter.tail() = i;
+            rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+            if(MDB_NOTFOUND == rc || iter_k.begin()->head() != node.begin()->head())
+            {
+                assertm(MDB_SUCCESS == (rc = db.put(iter_k, value, flags::put::DEFAULT)), rc);
+                break;
+            }
         }
     }
     assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+}
+
+template<typename K, typename V>
+void expand(graphdb::Database const& parent, K& node, V& value)
+{
+    const graphdb::mdb_view<K> node_v(&node, 1);
+
+    if constexpr(std::is_same_v<V, torch::Tensor>)
+    {
+        torch::Tensor tensor = value;
+        if(torch::kUInt8 == tensor.dtype())
+        {
+            mdb_view<uint8_t> value_v(tensor.data_ptr<uint8_t>(), tensor.numel());
+            expand(parent, node_v, value_v);
+        }
+        else
+            assertm(false, tensor.dtype());
+    }
+    else if constexpr (extensions::is_contiguous<V>::value)
+    {
+        const graphdb::mdb_view<typename V::value_type> value_v(value.data(), value.size());
+        expand(parent, node_v, value_v);
+    }
+    else
+        static_assert(extensions::false_always<K,V>::value);
 }
 
 /**
@@ -211,6 +343,13 @@ void clear(graphdb::Database const& parent, graphdb::mdb_view<K> head)
     }
 
     assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+}
+
+template<typename K>
+void clear(graphdb::Database const& parent, K& head)
+{
+    mdb_view<K> head_v(&head, 1);
+    clear(parent, head_v);
 }
 
 /**
@@ -253,12 +392,14 @@ DELETE:
     assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
 }
 
-}  // namespace list
-
-namespace graph  // Transactions that manage the graph DBs.
+template<typename K>
+void remove(graphdb::Database const& parent, K& node)
 {
-    //  FIXME: graph algorithms for adding/removing vertices and edges.
-}  // namespace graph
+    graphdb::mdb_view<K> node_v(&node, 1);
+    remove(parent, node_v);
+}
+
+}  // namespace list
 
 namespace hash  // Transactions that manage the hash DBs.
 {
@@ -274,17 +415,17 @@ void write(graphdb::Database const& parent, graphdb::mdb_view<K> hash, graphdb::
     Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
     Database db(txn, parent);
 
-    mdb_view<V> existing;
-
-    rc = db.get(hash, existing);
-    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
-
-    if(MDB_SUCCESS == rc)
-        list::append(db, hash, value);
-    if(MDB_NOTFOUND == rc)
-        assertm(MDB_SUCCESS == (rc = db.put(hash, value, flags::put::DEFAULT)), rc);
+    list::expand(db, hash, value);
 
     assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+}
+
+template<typename K, typename V>
+void write(graphdb::Database const& parent, K& hash, V& value)
+{
+    graphdb::mdb_view<K> hash_v(&hash, 1);
+    graphdb::mdb_view<V> value_v(&value, 1);
+    write(parent, hash_v, value_v);
 }
 
 }  // namespace hash
