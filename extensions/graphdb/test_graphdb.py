@@ -73,7 +73,7 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_make_graph_db(cls, filename, graph_i):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)+1))
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
         VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
         VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
         AM  = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX].encode())
@@ -109,7 +109,7 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_vertex_add(cls, filename, graph_i):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)+1))
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
         VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
         VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
         with env.begin(db=VS, write=True) as txn:
@@ -138,7 +138,7 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_vertex_expand(cls, filename, graph_i):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)+1))
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
         VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
         VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
         AM  = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX].encode())
@@ -204,7 +204,7 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_vertex_delete(cls, filename, graph_i, indexes):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)+1))
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
         VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
         VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
         AM  = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX].encode())
