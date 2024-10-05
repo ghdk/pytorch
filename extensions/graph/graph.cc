@@ -5,7 +5,6 @@ extern "C"
 
 #include "../system.h"
 #include "../bitarray/bitarray.h"
-#include "../iter/generated_iterator.h"
 #include "../iter/iter.h"
 #include "../graphdb/db.h"
 #include "../graphdb/schema.h"
@@ -19,31 +18,32 @@ extensions::graph::Graph::operator std::string()
 {
     std::string ret = "";
     ret += "V=";
-    for(auto v: this->vertices())
-        ret += std::to_string(v) + ", ";
+    this->vertices([&](feature::index_t v){ ret += std::to_string(v) + ", "; });
     ret += "\nE=";
-    for(auto e: this->edges())
-        ret += "(" + std::to_string(std::get<0>(e)) + "," + std::to_string(std::get<1>(e)) + ")" + ", ";
+    this->edges([&](feature::index_t e1, feature::index_t e2)
+                {
+                    ret += "(" + std::to_string(e1) + "," + std::to_string(e2) + ")" + ", ";
+                });
     ret += "\n";
     return ret;
 }
 
-extensions::iter::GeneratedEnumerable<extensions::graph::feature::index_t> extensions::graph::Graph::vertices()
+void extensions::graph::Graph::vertices(vertices_visitor_t visitor, size_t start, size_t stop, size_t step)
 {
-    return storage_->vertices();
+    storage_->vertices(visitor, start, stop, step);
 }
-extensions::iter::GeneratedEnumerable<std::pair<extensions::graph::feature::index_t, extensions::graph::feature::index_t>> extensions::graph::Graph::edges()
+void extensions::graph::Graph::edges(edges_visitor_t visitor, size_t start, size_t stop, size_t step)
 {
-    return storage_->edges();
+    storage_->edges(visitor, start, stop, step);
 }
 
-extensions::iter::GeneratedEnumerable<extensions::graph::feature::index_t> extensions::graph::Graph::vertices() const
+void extensions::graph::Graph::vertices(vertices_visitor_t visitor, size_t start, size_t stop, size_t step) const
 {
-    return const_cast<Graph*>(this)->vertices();
+    const_cast<Graph*>(this)->vertices(visitor, start, stop, step);
 }
-extensions::iter::GeneratedEnumerable<std::pair<extensions::graph::feature::index_t, extensions::graph::feature::index_t>> extensions::graph::Graph::edges() const
+void extensions::graph::Graph::edges(edges_visitor_t visitor, size_t start, size_t stop, size_t step) const
 {
-    return const_cast<Graph*>(this)->edges();
+    const_cast<Graph*>(this)->edges(visitor, start, stop, step);
 }
 
 bool extensions::graph::Graph::vertex(feature::index_t i)
@@ -68,23 +68,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
     auto c = py::class_<extensions::graph::Graph, extensions::ptr_t<extensions::graph::Graph>>(m, "Graph");
     extensions::graph::Graph::def(c);
     m.def("make_graph", static_cast<extensions::graph::Graph(*)(void)>(&extensions::graph::Graph::make_graph));
-    m.def("make_graph_db", +[](std::string filename, extensions::graph::feature::index_t graph)
-          {
-            extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
-            return extensions::graph::Graph::make_graph(env, graph);
-          });
-
-    {
-        using gen_v = extensions::iter::GeneratedEnumerable<extensions::graph::feature::index_t>;
-        auto c = py::class_<gen_v, extensions::ptr_t<gen_v>>(m, "GeneratedEnumerableVertex");
-        gen_v::def(c);
-    }
-
-    {
-        using gen_e = extensions::iter::GeneratedEnumerable<std::pair<extensions::graph::feature::index_t, extensions::graph::feature::index_t>>;
-        auto c = py::class_<gen_e, extensions::ptr_t<gen_e>>(m, "GeneratedEnumerableEdge");
-        gen_e::def(c);
-    }
+    m.def("make_graph_db", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> parent, extensions::graph::feature::index_t graph)
+          { return extensions::graph::Graph::make_graph(*parent, graph); });
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)

@@ -1,5 +1,6 @@
 #include "../system.h"
 #include "../iter/iter.h"
+#include "../bitarray/bitarray.h"
 #include "../graph/feature.h"
 
 extern "C"
@@ -9,8 +10,8 @@ extern "C"
 
 #include "db.h"
 #include "schema.h"
-#include "graphdb.h"
 #include "envpool.h"
+#include "graphdb.h"
 
 // The IDE doesn't like the PYBIND11_MODULE macro, hence we redirect it
 // to this function which is easier to read.
@@ -35,6 +36,13 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
     m.attr("VERTEX_SET_H")       = py::cast(extensions::graphdb::schema::VERTEX_SET_H);
     m.attr("VERTEX_SET_L")       = py::cast(extensions::graphdb::schema::VERTEX_SET_L);
 
+    auto c = py::class_<extensions::graphdb::schema::TransactionNode, extensions::ptr_t<extensions::graphdb::schema::TransactionNode>>(m, "TransactionNode");
+    m.def("make_transaction_node", +[](std::string filename)
+          {
+            extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+            return std::make_shared<extensions::graphdb::schema::TransactionNode>(std::ref(env), extensions::graphdb::flags::txn::NESTED_RW);
+          });
+
     {
         /**
          * Test submodule
@@ -52,7 +60,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    assertm(0 == env.cardinality(), "cardinality=", env.cardinality());
 
                    {
-                       extensions::graphdb::Transaction txn(env, 0);
+                       extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::WRITE);
                        extensions::graphdb::Database dbA(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::WRITE);
                        assertm(0 == dbA.cardinality(), "cardinality=", dbA.cardinality());
 
@@ -83,7 +91,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    assertm(2 == env.cardinality(), "cardinality=", env.cardinality());
 
                    {
-                       extensions::graphdb::Transaction txn(env, 0);
+                       extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::READ);
                        extensions::graphdb::Database dbA(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::WRITE);
                        assertm(1 == dbA.cardinality(), "cardinality=", dbA.cardinality());
 
@@ -131,7 +139,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        tensor = tensor.contiguous();
                        std::vector<float> vector(tensor.data_ptr<float>(), tensor.data_ptr<float>() + tensor.numel());
 
-                       extensions::graphdb::Transaction txn(env, 0);
+                       extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::WRITE);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::WRITE);
 
                        int rc = db.put(key_s, tensor, 0);
@@ -140,7 +148,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    }
 
                    {
-                       extensions::graphdb::Transaction txn(env, MDB_RDONLY);
+                       extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::READ);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::READ);
                        auto tensor = torch::zeros(orig.sizes(), orig.options());
 
@@ -161,14 +169,14 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    std::string key("key");
                    std::string value("value");
                    {
-                       extensions::graphdb::Transaction txn(env, 0);
+                       extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::WRITE);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::WRITE);
                        assertm(MDB_SUCCESS == (rc = db.put(key, value, 0)), rc);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
                    {
-                       extensions::graphdb::Transaction txn(env, MDB_RDONLY);
+                       extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::READ);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::READ);
                        std::string read(value.size(), '\0');
 
@@ -384,7 +392,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    }
 
                    {
-                       Transaction txn(env, flags::txn::NESTED);
+                       Transaction txn(env, flags::txn::NESTED_RO);
                        Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::READ);
 
                        buff_t buffer{0};
@@ -552,7 +560,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    {
-                       Transaction txn(env, flags::txn::NESTED);
+                       Transaction txn(env, flags::txn::NESTED_RW);
                        Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        schema::list_key_t hash{1,0};
@@ -593,7 +601,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    }
 
                    {
-                       Transaction txn(env, flags::txn::NESTED);
+                       Transaction txn(env, flags::txn::NESTED_RW);
                        Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        {
@@ -621,6 +629,46 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    }
                });
 
+        mt.def("test_graphdb_hash_visit",
+               +[]{
+                   using namespace extensions::graphdb;
+
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   int rc;
+
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+
+                   {
+                       Transaction txn(env, flags::txn::NESTED_RW);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
+
+                       schema::graph_feature_key_t key = {0xba5e, 0xf00};
+                       schema::graph_feature_key_t::value_type value = 0xba11;
+
+                       extensions::graphdb::feature::write(db, key, value);
+                       assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+                   }
+
+                   {
+                       Transaction txn(env, flags::txn::NESTED_RW);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
+
+                       schema::graph_feature_key_t key = {0,0};  // get it from the DB
+                       schema::graph_feature_key_t::value_type value = 0xba11;
+
+                       extensions::graphdb::hash::visitor_t<schema::graph_feature_key_t> visitor =
+                               [&](schema::graph_feature_key_t key)
+                               {
+                                   assertm(0xba5e == key.head(), key.head());
+                                   assertm(0xf00  == key.tail(), key.tail());
+                                   return MDB_SUCCESS;
+                               };
+                       rc = extensions::graphdb::hash::visit(db.hash_, value, visitor);
+                       assertm(MDB_SUCCESS == rc, rc);
+                       assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+                   }
+               });
+
         mt.def("test_graphdb_cursor_next",
                +[]{
                    using namespace extensions::graphdb;
@@ -631,7 +679,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    {
-                       Transaction txn(env, flags::txn::NESTED);
+                       Transaction txn(env, flags::txn::NESTED_RW);
                        Database db(txn, env.schema_[schema::VERTEX_FEATURE_H], flags::db::WRITE);
 
                        for(size_t head = 1; head < 4; head++)
@@ -684,6 +732,117 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    }
                });
 
+        mt.def("test_graphdb_feature_write_and_read",
+               +[]{
+                   using namespace extensions::graphdb;
+
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   int rc;
+
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+
+                   using elem_t = uint16_t;
+                   using buff_t = std::array<elem_t, extensions::page_size>;  // == 2 pages
+                   size_t chunk = extensions::page_size / sizeof(elem_t);
+
+                   {
+                       buff_t buffer{0};
+                       buffer[0] = 0xba5e;
+                       buffer[chunk-1] = 0xba11;
+                       buffer[chunk] = 0xc001;
+                       buffer[2*chunk-1] = 0xbee5;
+
+                       Transaction txn(env, flags::txn::NESTED_RW);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
+                       extensions::graphdb::schema::vertex_feature_key_t key = {0,0,0};
+                       extensions::graphdb::feature::write(db, key, buffer);
+                       assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+                   }
+
+                   {
+                       Transaction txn(env, flags::txn::NESTED_RW);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
+
+                       buff_t buffer{0};
+                       extensions::graphdb::schema::vertex_feature_key_t key = {0,0,0};
+                       extensions::graphdb::feature::visit(db, key,
+                                                           [&](schema::list_key_t head, size_t size)
+                                                           {
+                                                               extensions::graphdb::list::read(db.list_, head, buffer);
+                                                               return MDB_SUCCESS;
+                                                           });
+
+
+                       assertm(0xba5e == buffer[0], buffer[0]);
+                       assertm(0      == buffer[1], buffer[1]);
+                       assertm(0      == buffer[chunk - 2], buffer[chunk - 2]);
+                       assertm(0xba11 == buffer[chunk - 1], buffer[chunk - 1]);
+                       assertm(0xc001 == buffer[chunk],     buffer[chunk]);
+                       assertm(0      == buffer[chunk + 1], buffer[chunk + 1]);
+                       assertm(0      == buffer[chunk * 2 - 2], buffer[chunk * 2 - 2]);
+                       assertm(0xbee5 == buffer[chunk * 2 - 1], buffer[chunk * 2 - 1]);
+
+                       assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+                   }
+
+               });
+
+        mt.def("test_graphdb_transaction_node",
+               +[]{
+
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   int rc = 0;
+
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+                   extensions::graphdb::schema::TransactionNode root{env, extensions::graphdb::flags::txn::WRITE};
+
+                   const uint64_t value = 0xba5eba11;
+                   std::string key("int");
+
+                   {
+                       extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RW};
+                       assert(MDB_SUCCESS == (rc = child.vertex_.main_.put(key, value, 0)));
+                   }
+
+                   {
+                       extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
+                       uint64_t read = 0;
+                       assertm(MDB_SUCCESS == (rc = child.vertex_.main_.get(key, read)), rc);
+                       assertm(value == read, read);
+                   }
+               });
+
+        mt.def("test_graphdb_transaction_api",
+               +[]{
+
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   int rc = 0;
+
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+                   extensions::graphdb::schema::TransactionNode root{env, extensions::graphdb::flags::txn::WRITE};
+
+                   using elem_t = uint8_t;
+                   using buff_t = std::array<elem_t, extensions::page_size>;
+                   size_t chunk = extensions::page_size / sizeof(elem_t);
+
+                   std::string key("buffer");
+
+                   {
+                       extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RW};
+
+                       buff_t value{0};
+                       assert(MDB_SUCCESS == (rc = child.vertex_.main_.put(key, value, 0)));
+                       // modifying the buffer after the write does not affect the value in the DB
+                       value[0] = 1;
+                   }
+
+                   {
+                       extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
+                       buff_t value{0};
+                       assertm(MDB_SUCCESS == (rc = child.vertex_.main_.get(key, value)), rc);
+                       assertm(0 == value[0], value[0]);
+                   }
+               });
     }
 }
 

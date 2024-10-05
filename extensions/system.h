@@ -39,7 +39,7 @@
 #pragma GCC diagnostic pop
 #endif
 
-#define EXPORT __attribute__((visibility ("default")))
+#define VISIBLE __attribute__((visibility ("default")))
 
 namespace extensions
 {
@@ -80,7 +80,8 @@ bool assertlog(const Args& ...args)
     template <typename T, typename = std::void_t<>>
     struct is_contiguous: std::false_type {};
     template <typename T>
-    struct is_contiguous<T, std::enable_if_t<   std::is_same_v<typename std::remove_cv_t<T>::value_type*, decltype(std::declval<std::remove_cv_t<T>>().data())>
+    struct is_contiguous<T, std::enable_if_t<   std::is_same_v<typename std::remove_cv_t<T>::value_type,
+                                                               typename std::remove_cv_t<std::remove_pointer_t<decltype(std::declval<T>().data())>>>
                                              && std::is_same_v<std::size_t, decltype(std::declval<std::remove_cv_t<T>>().size())>>>
     : std::true_type
     {};
