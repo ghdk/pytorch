@@ -477,7 +477,7 @@ END:
         }
     }
 
-    Database(extensions::graphdb::schema::TransactionNode& parent, graph::feature::index_t graph)
+    Database(extensions::graphdb::schema::TransactionNode const& parent, graph::feature::index_t graph)
     : parent_{parent}
     , vtx_set_key_{graph}
     , vtx_set_iter_{}
@@ -552,7 +552,7 @@ private:
      *
      * The edges bitmap is an adjacency matrix. It is a 2D bitmap.
      */
-    graphdb::schema::TransactionNode& parent_;
+    graphdb::schema::TransactionNode const& parent_;
     torch::TensorOptions options_ = torch::TensorOptions().dtype(torch::kUInt8)
                                                           .requires_grad(false);
     torch::Tensor vtx_set_page_ = torch::zeros(extensions::page_size, options_);
