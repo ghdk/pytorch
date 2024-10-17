@@ -86,11 +86,11 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_make_graph_db(cls, filename, graph_i):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
-        VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
-        VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
-        AM  = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX].encode())
-        AML = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX_L].encode())
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.test.SCHEMA)))
+        VS  = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET].encode())
+        VSL = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET_L].encode())
+        AM  = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX].encode())
+        AML = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX_L].encode())
         with env.begin(db=VS, write=True) as txn:
             value = txn.get(struct.pack('=Q', graph_i))
             assert 16 == len(value), f"len={len(value)}"
@@ -125,9 +125,9 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_vertex_add(cls, filename, graph_i):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
-        VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
-        VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.test.SCHEMA)))
+        VS  = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET].encode())
+        VSL = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET_L].encode())
         with env.begin(db=VS, write=True) as txn:
             value = txn.get(struct.pack('=Q', graph_i))
             assert 16 == len(value), f"len={len(value)}"
@@ -157,11 +157,11 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_vertex_expand(cls, filename, graph_i):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
-        VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
-        VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
-        AM  = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX].encode())
-        AML = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX_L].encode())
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.test.SCHEMA)))
+        VS  = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET].encode())
+        VSL = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET_L].encode())
+        AM  = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX].encode())
+        AML = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX_L].encode())
         
         with env.begin(db=VS, write=True) as txn:  # Vertex Set
             with txn.cursor() as crs:
@@ -226,11 +226,11 @@ class Test(unittest.TestCase):
 
     @classmethod
     def impl_graph_vertex_delete(cls, filename, graph_i, indexes):
-        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.SCHEMA)))
-        VS  = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET].encode())
-        VSL = env.open_db(graphdb.SCHEMA[graphdb.VERTEX_SET_L].encode())
-        AM  = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX].encode())
-        AML = env.open_db(graphdb.SCHEMA[graphdb.ADJACENCY_MATRIX_L].encode())
+        env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.test.SCHEMA)))
+        VS  = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET].encode())
+        VSL = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET_L].encode())
+        AM  = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX].encode())
+        AML = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX_L].encode())
 
         head,tail = (None, None)
 
