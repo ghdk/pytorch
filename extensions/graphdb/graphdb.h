@@ -215,7 +215,7 @@ void write(graphdb::Database const& parent, K& head, V& value)
     }
     else if constexpr(std::is_fundamental_v<V>)
     {
-        const graphdb::mdb_view<V> value_v(&value, 1);
+        const graphdb::mdb_view<std::remove_cv_t<V>> value_v(&value, 1);
         write(parent, head_v, value_v);
     }
     else
@@ -481,7 +481,7 @@ void write(schema::DatabaseSet const& parent, K& key, V& value)
         }
         else if constexpr(std::is_fundamental_v<V>)
         {
-            hash = {std::hash<V>{}(value), 0};
+            hash = {std::hash<std::remove_cv_t<V>>{}(value), 0};
         }
         else
             static_assert(extensions::false_always<K,V>::value);
