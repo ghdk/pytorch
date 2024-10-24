@@ -63,6 +63,46 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
     m.def("view_graph_vtx_set_key" , +[](extensions::graphdb::schema::single_key_t key){ return std::tuple{key.data()[0]}; });
 
     {
+        auto mh = m.def_submodule("hash", "");
+
+        {
+            auto ms = mh.def_submodule("vertex");
+
+            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn,
+                                py::bytes data,
+                                extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::vertex_feature_key_t> pyfunc)
+                   {
+                        std::string_view data_v(data);
+                        extensions::graphdb::hash::visit(txn->vertex_, data_v, pyfunc);
+                   });
+        }
+
+        {
+            auto ms = mh.def_submodule("edge");
+
+            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn,
+                                py::bytes data,
+                                extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::edge_feature_key_t> pyfunc)
+                   {
+                        std::string_view data_v(data);
+                        extensions::graphdb::hash::visit(txn->edge_, data_v, pyfunc);
+                   });
+        }
+
+        {
+            auto ms = mh.def_submodule("graph");
+
+            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn,
+                                py::bytes data,
+                                extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::graph_feature_key_t> pyfunc)
+                   {
+                        std::string_view data_v(data);
+                        extensions::graphdb::hash::visit(txn->graph_, data_v, pyfunc);
+                   });
+        }
+    }  // submodule hash
+
+    {
         auto mf = m.def_submodule("feature", "");
         using visitor_t = std::function<int(py::bytes)>;
 
@@ -116,7 +156,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                         extensions::graphdb::feature::visit(txn->graph_, key, visitor);
                    });
         }
-    }
+    }  // submodule feature
 
     {
         /**
@@ -589,7 +629,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    {
                        Transaction txn(env, flags::txn::WRITE);
-                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
 
                        schema::list_key_t hash{1,0};
                        schema::list_key_t value;
@@ -597,7 +637,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        size_t sz;
 
                        {
-                           list::size(db, iter, sz);
+                           list::size(db.hash_, iter, sz);
                            assertm(0 == iter.tail(), iter.tail());
                        }
 
@@ -605,7 +645,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        hash::write(db, hash, value);
 
                        {
-                           list::size(db, iter, sz);
+                           list::size(db.hash_, iter, sz);
                            assertm(1 == iter.tail(), iter.tail());
                        }
 
@@ -613,7 +653,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        hash::write(db, hash, value);
 
                        {
-                           list::size(db, iter, sz);
+                           list::size(db.hash_, iter, sz);
                            assertm(2 == iter.tail(), iter.tail());
                        }
 
@@ -622,20 +662,20 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    {
                        Transaction txn(env, flags::txn::READ);
-                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::READ);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::READ);
 
                        schema::list_key_t hash;
                        schema::list_key_t value;
 
                        hash = {1,0};
 
-                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
                        assertm(0xba5e == value.head(), value.head());
                        assertm(0xba11 == value.tail(), value.tail());
 
                        hash = {1,1};
 
-                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
                        assertm(0xdead == value.head(), value.head());
                        assertm(0xbeef == value.tail(), value.tail());
 
@@ -654,7 +694,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    {
                        Transaction txn(env, flags::txn::NESTED_RW);
-                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
 
                        schema::list_key_t hash{1,0};
                        schema::list_key_t value;
@@ -673,35 +713,35 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    {
                        Transaction txn(env, flags::txn::READ);
-                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::READ);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
 
                        schema::list_key_t hash;
                        schema::list_key_t value;
 
                        hash = {1,0};
-                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
 
                        hash = {1,1};
-                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
 
                        hash = {1,2};
-                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
 
                        hash = {1,3};
-                       assertm(MDB_NOTFOUND == (rc = db.get(hash, value)), rc);
+                       assertm(MDB_NOTFOUND == (rc = db.hash_.get(hash, value)), rc);
 
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
 
                    {
                        Transaction txn(env, flags::txn::NESTED_RW);
-                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
 
                        {
                            schema::list_key_t hash;
 
                            hash = {1,0};
-                           list::remove(db, hash);
+                           list::remove(db.hash_, hash);
                        }
 
                        {
@@ -709,13 +749,13 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                            schema::list_key_t value;
 
                            iter = {1,1};
-                           assertm(MDB_SUCCESS == (rc = db.get(iter, value)), rc);
+                           assertm(MDB_SUCCESS == (rc = db.hash_.get(iter, value)), rc);
 
                            iter = {1,2};
-                           assertm(MDB_NOTFOUND == (rc = db.get(iter, value)), rc);
+                           assertm(MDB_NOTFOUND == (rc = db.hash_.get(iter, value)), rc);
 
                            iter = {1,3};
-                           assertm(MDB_NOTFOUND == (rc = db.get(iter, value)), rc);
+                           assertm(MDB_NOTFOUND == (rc = db.hash_.get(iter, value)), rc);
 
                            assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                        }
@@ -756,7 +796,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                    assertm(0xf00  == key.tail(), key.tail());
                                    return MDB_SUCCESS;
                                };
-                       rc = extensions::graphdb::hash::visit(db.hash_, value, visitor);
+                       rc = extensions::graphdb::hash::visit(db, value, visitor);
                        assertm(MDB_SUCCESS == rc, rc);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
@@ -773,7 +813,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    {
                        Transaction txn(env, flags::txn::NESTED_RW);
-                       Database db(txn, env.schema_[schema::VERTEX_FEATURE_H], flags::db::WRITE);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
 
                        for(size_t head = 1; head < 4; head++)
                        {
@@ -795,10 +835,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    {
                        Transaction txn(env, flags::txn::READ);
-                       Database db(txn, env.schema_[schema::VERTEX_FEATURE_H], flags::db::READ);
+                       extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
 
                        {
-                           Cursor cursor(txn, db);
+                           Cursor cursor(txn, db.hash_);
 
                            size_t head = 2;
                            schema::list_key_t iter{head,0};

@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.export import export
 
 import math
 import numpy as np
@@ -331,6 +332,17 @@ class Test(unittest.TestCase):
             torch.tensor([[2, 0, 1, 3]], dtype=torch.long, device=self._device)
         ]
     
+    def test_export(self):
+        # see `<https://pytorch.org/docs/stable/export.html>`_
+        
+        model = Transformer(
+                num_tokens=4, dim_model=8, num_heads=2, num_encoder_layers=3, num_decoder_layers=3, dropout_p=0.1
+            ).to(self._device)
+            
+        exported = export(model, (self._examples[0],
+                                  torch.tensor([[0,1]], dtype=torch.long),))  # FIXME: export arguments
+        print('----------', '\n', exported)
+        
     def test_transformer(self):
         with nopdb.NoPdb():
             nopdb.breakpoint(function=nn.Transformer.__init__, line="""  super().__init__()  """).exec(
