@@ -38,7 +38,7 @@ void find_head(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
     if(MDB_SUCCESS == rc)
         N = *(meta_v.begin());
 
-    const schema::meta_page_t page_sz = extensions::page_size * CHAR_BIT;
+    const schema::meta_page_t page_sz = extensions::graphdb::schema::page_size * CHAR_BIT;
     const schema::meta_page_t max = N * page_sz - 1;
     assertm(max >= ret, "Out of bounds ", ret, " ", max);
 
@@ -101,6 +101,9 @@ void size(graphdb::Database const& parent, graphdb::mdb_view<K> iter, mdb_view<s
     *(sz.begin()) = 0;
 
     assertm(0 != iter.begin()->head(), iter.begin()->head());
+
+    //§ FIXME: look for <HEAD,LIST_TAIL_MAX>, assert if it does not exist
+    //§ FIXME: return num of pages and size from the metadata
 
     {
         Cursor cursor(parent.txn_, parent);
@@ -174,7 +177,7 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
     K iter = *(head.begin());
     mdb_view<K> iter_k(&iter, 1);
     mdb_view<V> iter_v;
-    size_t chunk = extensions::page_size / sizeof(V);  // number of items in a page
+    size_t chunk = extensions::graphdb::schema::page_size / sizeof(V);  // number of items in a page
 
     for(typename K::value_type i = 0; i < schema::LIST_TAIL_MAX; i++)
     {
@@ -244,7 +247,7 @@ void read(graphdb::Database const& parent, const graphdb::mdb_view<K> head, grap
         K iter = *(head.begin());
         mdb_view<K> iter_k(&iter, 1);
         mdb_view<V> iter_v;
-        size_t chunk = extensions::page_size / sizeof(V);
+        size_t chunk = extensions::graphdb::schema::page_size / sizeof(V);
 
         for(size_t i = 0; i < schema::LIST_TAIL_MAX; i++)
         {
@@ -287,7 +290,7 @@ template<typename K, typename V, typename = schema::is_list_key_t<K>>
 void expand(graphdb::Database const& parent, graphdb::mdb_view<K> node, graphdb::mdb_view<V> value)
 {
     assertm(0 != node.begin()->head(), node.begin()->head());
-    assertm(value.size() * sizeof(V) <= extensions::page_size, value.size());
+    assertm(value.size() * sizeof(V) <= extensions::graphdb::schema::page_size, value.size());
 
     int rc = 0;
 
@@ -521,7 +524,7 @@ namespace bitarray  // Transactions that manage the bitmaps.
     static std::tuple<schema::list_key_t::value_type, schema::list_key_t::value_type, schema::list_key_t::value_type>
     map_vtx_to_page(schema::graph_vtx_set_key_t::value_type vtx)
     {
-        schema::graph_vtx_set_key_t::value_type slice = extensions::page_size * extensions::bitarray::cellsize;
+        schema::graph_vtx_set_key_t::value_type slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
         schema::graph_vtx_set_key_t::value_type tail = vtx / slice;  // ie. the page in the list of pages
         schema::graph_vtx_set_key_t::value_type map  = vtx % slice;  // ie. the index of the vertex in the page
         schema::graph_vtx_set_key_t::value_type cell = map / extensions::bitarray::cellsize;  // ie. the cell in the page
@@ -567,6 +570,39 @@ namespace bitarray  // Transactions that manage the bitmaps.
         return ret;
     }
 }  // namespace bitarray
+
+namespace stat
+{
+
+namespace graph
+{
+    inline std::string size(schema::TransactionNode const& parent, schema::graph_vtx_set_key_t key)
+    {
+        int rc = 0;
+        std::ostringstream ret;
+        size_t sz;
+        extensions::graphdb::schema::list_key_t iter;
+
+        assertm(MDB_SUCCESS == (rc = parent.vtx_set_.main_.get(key, iter)), rc, key);  // get head of list
+        extensions::graphdb::list::size(parent.vtx_set_.list_, iter, sz);
+        ret << "vtx set=(" << iter.tail() << "," << sz << ")";
+
+        size_t adj_mtx_pages = 0;
+        size_t adj_mtx_size = 0;
+        for(size_t i = 0; i < sz; i++)
+        {
+            schema::graph_adj_mtx_key_t query = {key.graph(), i};
+            assertm(MDB_SUCCESS == (rc = parent.adj_mtx_.main_.get(query, iter)), rc, query);  // get head of list
+            extensions::graphdb::list::size(parent.adj_mtx_.list_, iter, sz);
+            adj_mtx_pages += iter.tail();
+            adj_mtx_size += sz;
+        }
+        ret << ", adj mtx=(" << adj_mtx_pages << "," << adj_mtx_size << ")";
+        return ret.str();
+    }
+}  // namespace graph
+
+}  // namespace stat
 
 }}  // namespace extensions::graphdb
 

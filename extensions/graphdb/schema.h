@@ -146,7 +146,8 @@ namespace flags
 
     namespace env
     {
-        constexpr unsigned int DEFAULT = MDB_NOSUBDIR;
+        // NB. we lose the durability from ACID, but we gain speed.
+        constexpr unsigned int DEFAULT = MDB_NOSUBDIR | MDB_NOMETASYNC | MDB_NOSYNC;
     }
 
     namespace put
@@ -158,6 +159,13 @@ namespace flags
 
 namespace schema
 {
+
+/**
+ * The DB prefers objects of small size, otherwise the file grows much larger
+ * than the size of the data that is stored, see
+ * `<https://www.symas.com/post/understanding-lmdb-database-file-sizes-and-memory-utilization>`_
+ */
+constexpr int page_size = 256;  // bytes
 
 #define T_(t)  t, "H" t, "L" t
 constexpr std::array SCHEMA = {T_("VF"),
@@ -416,6 +424,7 @@ using meta_page_t = meta_key_t::value_type;
 // are random, hence collisions on 0 do not matter.
 constexpr typename meta_key_t::value_type RESERVED = 0ULL;
 const meta_key_t META_KEY_PAGE = {RESERVED, 0x0ULL};
+//§ FIXME: use LIST_TAIL_MAX to store list metadata <num of pages, size in bytes>
 constexpr auto LIST_TAIL_MAX = std::numeric_limits<typename list_key_t::value_type>::max();
 
 template<typename K>
