@@ -177,16 +177,23 @@ class Test(unittest.TestCase):
         with env.begin(db=VSL, write=True) as txn:  # Vertex Set Linked List
             with txn.cursor() as crs:
                 pages = [i for i in iter(crs)]
-                assert 3 == len(pages)
+                assert 4 == len(pages), len(pages)
                 keyA, valueA = pages[0]
                 headA, tailA = struct.unpack('=QQ', keyA)
                 keyB, valueB = pages[1]
                 headB, tailB = struct.unpack('=QQ', keyB)
                 keyC, valueC = pages[2]
                 headC, tailC = struct.unpack('=QQ', keyC)
+                keyD, valueD = pages[3]
+                headD, tailD = struct.unpack('=QQ', keyD)
                 assert 0 == headA, f"{headA}"
                 assert headB == headC, f"{headB} == {headC}"
-                assert [0,0,1] == [tailA, tailB, tailC], f"{[tailA, tailB, tailC]}"
+                assert [0,0,1,0xFFFFFFFFFFFFFFFF] == [tailA, tailB, tailC, tailD], f"{[tailA, tailB, tailC, tailD]}"
+                
+                # verify the end node
+                length, size = struct.unpack('=QQ', valueD)
+                assert 2 == length, f"{length}"
+                assert 2*graphdb.PAGE_SIZE == size, f"{size}"
         adj_mtx_heads = []
         with env.begin(db=AM, write=True) as txn:  # Adjacency Matrix
             with txn.cursor() as crs:
@@ -205,6 +212,7 @@ class Test(unittest.TestCase):
                 expected = sorted(expected)
                 pages = [i for i in iter(crs)]
                 pages_keys = [struct.unpack('=QQ', key) for key,_ in pages]
+                pages_keys = [k for k in pages_keys if k[1] != 0xFFFFFFFFFFFFFFFF]
                 pages_keys = sorted(pages_keys)
                 assert expected == pages_keys, f"{expected} == {pages_keys}"
 
@@ -248,14 +256,17 @@ class Test(unittest.TestCase):
         with env.begin(db=VSL, write=True) as txn:  # Vertex Set Linked List
             with txn.cursor() as crs:
                 pages = [i for i in iter(crs)]
-                assert 2 == len(pages)
+                assert 3 == len(pages), len(pages)
                 keyA, valueA = pages[0]
                 headA, tailA = struct.unpack('=QQ', keyA)
                 keyB, valueB = pages[1]
                 headB, tailB = struct.unpack('=QQ', keyB)
+                keyC, valueC = pages[2]
+                headC, tailC = struct.unpack('=QQ', keyC)
                 assert 0 == headA, f"{headA}"
                 assert headB == head, f"{headB} == {head}"
-                assert [0,0] == [tailA, tailB], f"{[tailA, tailB]}"
+                assert headC == head, f"{headC} == {head}"
+                assert [0,0,0xFFFFFFFFFFFFFFFF] == [tailA, tailB, tailC], f"{[tailA, tailB, tailC]}"
                 tensor = torch.frombuffer(valueB, dtype=torch.uint8, count=len(valueB), requires_grad=False)
                 
                 # on error print the whole tensor
@@ -271,6 +282,11 @@ class Test(unittest.TestCase):
                 assert bitarray.get(tensor, indexes[1]-1), f"{tensor}"
                 assert bitarray.get(tensor, indexes[1]+1), f"{tensor}"
                 assert bitarray.get(tensor, indexes[2]-1), f"{tensor}"
+                
+                # verify the end node
+                length, size = struct.unpack('=QQ', valueC)
+                assert 1 == length, f"{length}"
+                assert graphdb.PAGE_SIZE == size, f"{size}"
 
     @rm_test_dir
     def test_graph_vertex_delete(self):
@@ -369,4 +385,3 @@ class Test(unittest.TestCase):
     def test_db_keys_factories(self):
         k = graphdb.make_list_key(1,2)
         self.assertEqual((1,2), graphdb.view_list_key(k))
-
