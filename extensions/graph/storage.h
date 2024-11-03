@@ -311,35 +311,10 @@ public:
                  * transactions cause the DB file to grow significantly and
                  * raise MDB_MAP_FULL, or b) large transactions raise
                  * MDB_TXN_FULL or c) the application blocks on IO.
+                 *
+                 * The vertex set is enough to guide us while the adjacency
+                 * matrix is sparse.
                  */
-
-                // Expand the adjacency matrix.
-                using key_t = extensions::graphdb::schema::graph_adj_mtx_key_t;
-                using iter_t = extensions::graphdb::schema::list_key_t;
-                using value_t = extensions::bitarray::cell_t;
-
-                for(size_t vtx = 0; vtx < (N+1) * slice; vtx++)
-                {
-                    key_t key = {vtx_set_key_.graph(), vtx};
-                    iter_t iter = {0,0};
-                    rc = session.adj_mtx_.main_.get(key, iter);
-                    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
-                    if(MDB_SUCCESS == rc)
-                    {
-                        iter.tail() = N;
-                        extensions::graphdb::list::expand(session.adj_mtx_.list_, iter, page);
-                    }
-                    else if(MDB_NOTFOUND == rc)
-                    {
-                        extensions::graphdb::list::find_head(session.adj_mtx_.list_, iter);
-                        assertm(MDB_SUCCESS == (rc = session.adj_mtx_.main_.put(key, iter, extensions::graphdb::flags::put::DEFAULT)), rc);
-                        for(size_t p = 0; p < (N+1); p++)
-                        {
-                            iter.tail() = p;
-                            extensions::graphdb::list::expand(session.adj_mtx_.list_, iter, page);
-                        }
-                    }
-                }
 
                 // Expand the vertex set.
                 bitarray::set(page, ret % slice, truth);
@@ -409,7 +384,7 @@ END:
             assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(session.adj_mtx_, key, iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_)), rc, key, iter);
 
             bitarray::set(adj_mtx_page_, vtx, truth);
-            assertm(MDB_SUCCESS == (rc = session.adj_mtx_.list_.put(iter, adj_mtx_page_, extensions::graphdb::flags::put::DEFAULT)), rc, iter.head(), iter.tail());
+            extensions::graphdb::bitarray::write_page(session.vtx_set_, session.adj_mtx_, key, iter, adj_mtx_page_);
         }
     }
 
@@ -505,9 +480,8 @@ END:
     , adj_mtx_iter_{}
     {
         /*
-         * Initialise the graph in the DB,
-         * - Create a single page for the vertex set in VS
-         * - Create the corresponding rows of the ADJ MTX in AM
+         * Initialise the graph in the DB, by creating only the vertex set. The
+         * ADJ MTX is sparse.
          */
 
         int rc = 0;
@@ -531,30 +505,6 @@ END:
             extensions::graphdb::list::find_head(child.vtx_set_.list_, hint);
             extensions::graphdb::list::expand(child.vtx_set_.list_, hint, page);
             assertm(MDB_SUCCESS == (rc = child.vtx_set_.main_.put(iter, hint, extensions::graphdb::flags::put::DEFAULT)), rc);
-        }
-
-        {
-            extensions::graphdb::Cursor cursor(child.txn_, child.adj_mtx_.list_);
-
-            using iter_t = extensions::graphdb::schema::graph_adj_mtx_key_t;
-            using hint_t = extensions::graphdb::schema::list_key_t;
-            using value_t = uint8_t;
-
-            iter_t iter = {graph, 0};
-            hint_t hint = {0,0};
-            std::array<value_t, extensions::graphdb::schema::page_size> page = {0};
-
-            rc = cursor.get(iter, hint, MDB_cursor_op::MDB_SET);
-            if(MDB_SUCCESS == rc) goto COMMIT;
-
-            for(size_t i = 0; i < extensions::graphdb::schema::page_size * extensions::bitarray::cellsize; i++)
-            {
-                iter.tail() = i;
-                hint = {i,0};
-                extensions::graphdb::list::find_head(child.adj_mtx_.list_, hint);
-                extensions::graphdb::list::expand(child.adj_mtx_.list_, hint, page);
-                assertm(MDB_SUCCESS == (rc = child.adj_mtx_.main_.put(iter, hint, extensions::graphdb::flags::put::DEFAULT)), rc);
-            }
         }
     COMMIT:
         return;
