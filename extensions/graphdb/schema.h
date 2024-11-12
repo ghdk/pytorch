@@ -154,7 +154,7 @@ namespace flags
 
     namespace env
     {
-        constexpr unsigned int DEFAULT = MDB_NOSUBDIR;
+        constexpr unsigned int DEFAULT = MDB_NOSUBDIR | MDB_NOMEMINIT | MDB_NOSYNC | MDB_NOMETASYNC;
     }
 
     namespace put
