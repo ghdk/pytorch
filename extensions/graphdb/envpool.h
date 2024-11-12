@@ -17,10 +17,8 @@ public:
 private:
     using map_t = std::unordered_map<std::string, Environment>;
 private:
-    static map_t pool_;
+    VISIBLE static map_t pool_;
 };
-
-typename EnvironmentPool::map_t EnvironmentPool::pool_ = {};
 
 }};  // extensions::graphdb
 #endif  // EXTENSIONS_GRAPHDB_ENVPOOL_H

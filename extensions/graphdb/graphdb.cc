@@ -11,53 +11,8 @@ extern "C"
 #include "db.h"
 #include "schema.h"
 #include "envpool.h"
+#include "transaction.h"
 #include "graphdb.h"
-
-class PyTransactionNode
-{
-
-    /**
-     * The transaction node relies on RAII, and during its destruction closes
-     * the transaction and the databases.
-     *
-     * In Python we cannot rely on object destruction. Instead we expose this
-     * object that implements the context manager protocol, and wraps a
-     * transaction node in a unique pointer. Python does not gain ownership of
-     * the transaction node, hence during __exit__ we can destroy it, and close
-     * the transaction through RAII.
-     */
-
-    extensions::ptr_u<extensions::graphdb::schema::TransactionNode> txn_;
-
-public:
-    PyTransactionNode(std::string filename)
-    {
-        extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
-        txn_ = std::make_unique<extensions::graphdb::schema::TransactionNode>(std::ref(env), extensions::graphdb::flags::txn::NESTED_RW);
-    }
-
-#ifdef PYDEF
-public:
-    template <typename PY>
-    static PY def(PY& c)
-    {
-        using T = typename PY::type;
-        c.def(py::init<std::string>());
-        c.def("__enter__", +[](extensions::ptr_t<PyTransactionNode> self) {
-            assert(nullptr != self->txn_);
-            return self->txn_.get();
-        }, py::return_value_policy::reference_internal);
-        c.def("__exit__",  +[](extensions::ptr_t<PyTransactionNode> self,
-                               std::optional<pybind11::type> const&exc_type,
-                               std::optional<pybind11::object> const& exc_value,
-                               std::optional<pybind11::object> const& traceback){
-            self->txn_ = nullptr;
-        });
-        return c;
-    }
-#endif  // PYDEF
-
-};
 
 // The IDE doesn't like the PYBIND11_MODULE macro, hence we redirect it
 // to this function which is easier to read.
@@ -65,9 +20,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 {
     m.attr("PAGE_SIZE") = pybind11::int_(extensions::graphdb::schema::page_size);
 
-    auto c = py::class_<extensions::graphdb::schema::TransactionNode>(m, "__TransactionNode");
-    auto cc = py::class_<PyTransactionNode, extensions::ptr_t<PyTransactionNode>>(m, "TransactionNode");
-    PyTransactionNode::def(cc);
+    auto cc = py::class_<extensions::graphdb::schema::PyTransactionNode, extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode>>(m, "TransactionNode");
+    extensions::graphdb::schema::PyTransactionNode::def(cc);
 
     /**
      * Since the key_t is formed by the size of the key, in Python we cannot
@@ -111,36 +65,36 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         {
             auto ms = mh.def_submodule("vertex");
 
-            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn,
+            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
                                 py::bytes data,
                                 extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::vertex_feature_key_t> pyfunc)
                    {
                         std::string_view data_v(data);
-                        extensions::graphdb::hash::visit(txn->vertex_, data_v, pyfunc);
+                        extensions::graphdb::hash::visit(txn->txn().vertex_, data_v, pyfunc);
                    });
         }
 
         {
             auto ms = mh.def_submodule("edge");
 
-            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn,
+            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
                                 py::bytes data,
                                 extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::edge_feature_key_t> pyfunc)
                    {
                         std::string_view data_v(data);
-                        extensions::graphdb::hash::visit(txn->edge_, data_v, pyfunc);
+                        extensions::graphdb::hash::visit(txn->txn().edge_, data_v, pyfunc);
                    });
         }
 
         {
             auto ms = mh.def_submodule("graph");
 
-            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn,
+            ms.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
                                 py::bytes data,
                                 extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::graph_feature_key_t> pyfunc)
                    {
                         std::string_view data_v(data);
-                        extensions::graphdb::hash::visit(txn->graph_, data_v, pyfunc);
+                        extensions::graphdb::hash::visit(txn->txn().graph_, data_v, pyfunc);
                    });
         }
     }  // submodule hash
@@ -152,51 +106,57 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         {
             auto mv = mf.def_submodule("vertex");
 
-            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn, extensions::graphdb::schema::vertex_feature_key_t key, visitor_t pyfunc)
+            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                                extensions::graphdb::schema::vertex_feature_key_t key,
+                                visitor_t pyfunc)
                    {
                         // We wrap the Python function into a lambda that will
                         // translate the key and size into a bytes object.
                         auto visitor = [&](extensions::graphdb::schema::list_key_t iter,  size_t sz){
                             std::string ret(sz, '\0');
-                            extensions::graphdb::list::read(txn->vertex_.list_, iter, ret);
+                            extensions::graphdb::list::read(txn->txn().vertex_.list_, iter, ret);
                             return pyfunc(py::bytes(ret));
                         };
 
-                        extensions::graphdb::feature::visit(txn->vertex_, key, visitor);
+                        extensions::graphdb::feature::visit(txn->txn().vertex_, key, visitor);
                    });
         }
 
         {
             auto mv = mf.def_submodule("edge");
 
-            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn, extensions::graphdb::schema::edge_feature_key_t key, visitor_t pyfunc)
+            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                                extensions::graphdb::schema::edge_feature_key_t key,
+                                visitor_t pyfunc)
                    {
                         // We wrap the Python function into a lambda that will
                         // translate the key and size into a bytes object.
                         auto visitor = [&](extensions::graphdb::schema::list_key_t iter,  size_t sz){
                             std::string ret(sz, '\0');
-                            extensions::graphdb::list::read(txn->edge_.list_, iter, ret);
+                            extensions::graphdb::list::read(txn->txn().edge_.list_, iter, ret);
                             return pyfunc(py::bytes(ret));
                         };
 
-                        extensions::graphdb::feature::visit(txn->edge_, key, visitor);
+                        extensions::graphdb::feature::visit(txn->txn().edge_, key, visitor);
                    });
         }
 
         {
             auto mv = mf.def_submodule("graph");
 
-            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn, extensions::graphdb::schema::graph_feature_key_t key, visitor_t pyfunc)
+            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                                extensions::graphdb::schema::graph_feature_key_t key,
+                                visitor_t pyfunc)
                    {
                         // We wrap the Python function into a lambda that will
                         // translate the key and size into a bytes object.
                         auto visitor = [&](extensions::graphdb::schema::list_key_t iter,  size_t sz){
                             std::string ret(sz, '\0');
-                            extensions::graphdb::list::read(txn->graph_.list_, iter, ret);
+                            extensions::graphdb::list::read(txn->txn().graph_.list_, iter, ret);
                             return pyfunc(py::bytes(ret));
                         };
 
-                        extensions::graphdb::feature::visit(txn->graph_, key, visitor);
+                        extensions::graphdb::feature::visit(txn->txn().graph_, key, visitor);
                    });
         }
     }  // submodule feature
