@@ -790,7 +790,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        schema::graph_feature_key_t key = {0xba5e, 0xf00};
                        schema::graph_feature_key_t::value_type value = 0xba11;
 
-                       extensions::graphdb::feature::write(db, key, value);
+                       extensions::graphdb::feature::write(db, key, value, true);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
@@ -904,7 +904,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        Transaction txn(env, flags::txn::NESTED_RW);
                        extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
                        extensions::graphdb::schema::vertex_feature_key_t key = {0,0,0};
-                       extensions::graphdb::feature::write(db, key, buffer);
+                       extensions::graphdb::feature::write(db, key, buffer, true);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
