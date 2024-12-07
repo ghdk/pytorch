@@ -95,8 +95,41 @@
     Value: linked list head in Linked Lists
  * ```
  *
- * Where `ATTRIBUTE` is the numerical representation of the feature,
- * not its hash, ex. the key `<1,2,'t'>` in `VF` translates to graph=1, vertex=2,
+ * Where `EDGE INDEX` is a single size_t index, set to the index of the edge in
+ * the flattened adjacency matrix. Since the VERTEX and EDGE indexes are of
+ * the same type, size_t, if we had max size_t vertices we would need
+ * max size_t^2 edges. Hence we would need two size_t variables to capture the
+ * edges. In that case however, transformations such as a line graph, would
+ * require the line graph to have 128bit vertex indexes, and 2x128bit edge
+ * indexes. This introduces a recursion resulting in growing index types.
+ *
+ * Instead we bound the EDGE index to size_t and we capture within each graph
+ * sqrt(max size_t) vertices. Since in the DB we can have multiple graphs,
+ * each of these graphs become effectively the induced subgraphs of a larger
+ * graph with > sqrt(max size_t) vertices, ie. assuming that we have a graph
+ * G with a vertex set size [0, 2x sqrt(max size_t)], the induced subgraphs
+ * would be
+ *
+ * G1 [0, sqrt(max size_t) -1] and
+ * G2 [sqrt(max size_t), 2x sqrt(max size_t)]
+ *
+ * If we wanted to express edges between G1 and G2, we would need a new graph
+ * G' whose vertices refer to vertices from G1 and G2, and whose edges have one
+ * end in G1 and one end in G2, effectively making G' a bipartite graph. When
+ * G is fully connected and so the vertices of G1 are fully connected to the
+ * vertices of G2, we would need 4 halves of G1 and G2, and so 4x G' graphs each
+ * covering a pair of those halves. The edges of each G' would connect the
+ * vertices from different halves.
+ *
+ * One further detail that we need to consider is that the EDGE index refers to
+ * a flattened adjacency matrix. On the other hand the vertex set is of variable
+ * size as it expands with vertex additions. Hence if we were using the current
+ * size of the vertex set to calculate the EDGE index, these indexes would get
+ * invalidated every time we add a vertex. As such all EDGE indexes are
+ * calculated based on the max size of the vertex set, ie. sqrt(max size_t).
+ *
+ * `ATTRIBUTE` is the numerical representation of the feature, not its hash,
+ * ex. the key `<1,2,'t'>` in `VF` translates to graph=1, vertex=2,
  * feature=token.
  *
  * Internal named DBs.
@@ -325,10 +358,13 @@ public:
     using value_type = list_key_t::value_type;
 private:
     /**
-     * [0]: the length of the list
-     * [1]: the length of the list in bytes
+     * [0]: the number of nodes in the list
+     * [1]: the size of the buffer held by the list
+     * [2]: hash
+     * [3]: refcount
      */
-    std::array<value_type, 2> data_ = {0};
+    std::array<value_type, 4> data_ = {0};
+
 public:
 
     constexpr size_t size() { return data_.size(); }
@@ -340,15 +376,31 @@ public:
 public:  // accessors
     value_type& length()
     {
+        assert(0 < data_.size());
         return data_[0];
     }
     const value_type& length() const noexcept { return const_cast<list_end_*>(this)->length(); }
 
     value_type& bytes()
     {
+        assert(1 < data_.size());
         return data_[1];
     }
     const value_type& bytes() const noexcept { return const_cast<list_end_*>(this)->bytes(); }
+
+    value_type& hash()
+    {
+        assert(2 < data_.size());
+        return data_[2];
+    }
+    const value_type& hash() const noexcept { return const_cast<list_end_*>(this)->hash(); }
+
+    value_type& refcount()
+    {
+        assert(3 < data_.size());
+        return data_[3];
+    }
+    const value_type& refcount() const noexcept { return const_cast<list_end_*>(this)->refcount(); }
 
 public:
     list_end_() = default;
@@ -370,7 +422,7 @@ public:
     }
 };
 
-using list_end_t = std::enable_if_t<sizeof(list_end_) == 2 * sizeof(typename list_end_::value_type), list_end_>;
+using list_end_t = std::enable_if_t<sizeof(list_end_) == 4 * sizeof(typename list_end_::value_type), list_end_>;
 
 using meta_key_t = list_key_t;
 using meta_page_t = meta_key_t::value_type;
@@ -384,6 +436,9 @@ constexpr auto LIST_TAIL_MAX = std::numeric_limits<typename list_key_t::value_ty
 
 template<typename K>
 using is_list_key_t = std::enable_if_t<std::is_same_v<K, list_key_t>, void>;
+
+template<typename K>
+using is_not_list_key_t = std::enable_if_t<!std::is_same_v<K, list_key_t>, void>;
 
 template<typename K>
 using is_key_t = std::enable_if_t<std::is_constructible_v<std::variant<vertex_feature_key_t, // covers edge_feature_key_t

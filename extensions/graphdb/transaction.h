@@ -42,6 +42,16 @@ public:
  * callee does not create a new transaction, instead uses the transaction and
  * database from the database set. Hence the transactions are always at the
  * database node level.
+ *
+ * On nested transactions:
+ *
+ * Write transactions can be nested. Child transactions see the uncommitted
+ * writes of their parent. The child transaction can commit or abort, at which
+ * point its writes become visible to the parent transaction or are discarded.
+ * If the parent aborts, all of the writes performed in the context of the
+ * parent, including those from committed child transactions, are discarded.
+ *
+ * src: `<https://github.com/antimer/lmdb>`_
  */
 struct TransactionNode
 {

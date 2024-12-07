@@ -1,6 +1,7 @@
 import unittest
 import torch
 import multiprocessing as mp
+import random
 from signal import SIGABRT
 
 from bitarray import bitarray
@@ -45,6 +46,22 @@ class Test(unittest.TestCase):
         self.assertEqual(bitmap, torch.ByteTensor([0x41]))
         bitmap = bitarray.set(bitmap, 1, False)
         self.assertEqual(bitmap, torch.ByteTensor([0x1]))
+
+    def test_bitarray_set_random(self):
+        total = 4096
+        bitmap = torch.ByteTensor([0] * total)
+        expected = []
+        for i in range(total):
+            r = random.randint(0, i)
+            bitmap = bitarray.set(bitmap, r, True)
+            expected.append(r)
+        received = []
+        for i in range(total * bitarray.CELL_SIZE):
+            if bitarray.get(bitmap, i):
+                received.append(i)
+        expected = sorted(set(expected))
+        received = sorted(set(received))
+        self.assertEqual(expected, received, f"{expected}, {received}")
 
     def test_bitarray_get(self):
         bitmap = torch.ByteTensor([5])

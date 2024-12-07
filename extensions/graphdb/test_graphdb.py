@@ -14,13 +14,15 @@ from graphdb import graphdb
 from bitarray import bitarray
 from graph import graph
 
+RAMFS = os.environ.get("RAMFS", "")
+
 class Test(unittest.TestCase):
     
     def setUp(self):
         self._top = os.getcwd()
-        self._dir = tempfile.mkdtemp(dir=self._top)
+        self._dir = tempfile.mkdtemp(dir=RAMFS if RAMFS else self._top)
         os.chdir(self._dir)
-        
+
     def rm_test_dir(f):
         def impl(self):
             try: f(self)
@@ -70,8 +72,8 @@ class Test(unittest.TestCase):
         graphdb.test.test_graphdb_hash_visit()
 
     @rm_test_dir
-    def test_graphdb_find_head(self):
-        graphdb.test.test_graphdb_find_head()
+    def test_graphdb_head_find(self):
+        graphdb.test.test_graphdb_head_find()
 
     @rm_test_dir
     def test_graphdb_cursor_next(self):
@@ -176,9 +178,11 @@ class Test(unittest.TestCase):
                 assert [0,0,1,0xFFFFFFFFFFFFFFFF] == [tailA, tailB, tailC, tailD], f"{[tailA, tailB, tailC, tailD]}"
                 
                 # verify the end node
-                length, size = struct.unpack('=QQ', valueD)
+                length, size, hash, refcount = struct.unpack('=QQQQ', valueD)
                 assert 2 == length, f"{length}"
                 assert 2*graphdb.PAGE_SIZE == size, f"{size}"
+                assert 0 == hash, f"{hash}"
+                assert 1 == refcount, f"{refcount}"
         adj_mtx_heads = []
         with env.begin(db=AM, write=True) as txn:  # Adjacency Matrix
             with txn.cursor() as crs:
@@ -270,9 +274,11 @@ class Test(unittest.TestCase):
                 assert bitarray.get(tensor, indexes[2]-1), f"{tensor}"
                 
                 # verify the end node
-                length, size = struct.unpack('=QQ', valueC)
+                length, size, hash, refcount = struct.unpack('=QQQQ', valueC)
                 assert 1 == length, f"{length}"
                 assert graphdb.PAGE_SIZE == size, f"{size}"
+                assert 0 == hash, f"{hash}"
+                assert 1 == refcount, f"{refcount}"
 
     @rm_test_dir
     def test_graph_vertex_delete(self):
@@ -337,9 +343,11 @@ class Test(unittest.TestCase):
             received = []
             g.vertices(lambda n : received.append(n), 0,0,1)
             self.assertEqual([], received)
-            expected = [g.vertex(0,True) for _ in range(10)]
+            expected = [g.vertex(0,True) for _ in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE, 2)]
             g.vertices(lambda n : received.append(n), 0,0,1)
-            self.assertEqual(sorted(expected), sorted(received))
+            expected = sorted(expected)
+            received = sorted(received)
+            self.assertEqual(expected, received, f"{expected}, {received}")
 
     @rm_test_dir
     def test_graph_iter_edge(self):
@@ -357,13 +365,20 @@ class Test(unittest.TestCase):
                 y = g.vertex(r,True)
                 expected.append((x,y))
                 g.edge(x,y,True)
+                self.assertTrue(g.is_edge(x,y), f"{(x,y)}")
             received = []
             g.edges(lambda x,y: received.append((x,y)), 0,0,1)
-            self.assertEqual(sorted(expected), sorted(received))
+            expected = sorted(set(expected))
+            received = sorted(set(received))
+            self.assertEqual(expected, received, f"{expected}, {received}")
 
     @rm_test_dir
     def test_graphdb_feature_write_and_read(self):
         graphdb.test.test_graphdb_feature_write_and_read()
+        
+    @rm_test_dir
+    def test_graphdb_feature_write_and_refcount(self):
+        graphdb.test.test_graphdb_feature_write_and_refcount()
         
     def test_db_keys_factories(self):
         k = graphdb.make_list_key(1,2)
