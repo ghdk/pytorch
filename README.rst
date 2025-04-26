@@ -55,6 +55,13 @@ update::
 
 ..  when asked for empty commits do -skip
 
+update README.md::
+
+    git fetch upstream main
+    git merge upstream/main  # single merge conflict README.md, --abort
+    git merge -X ours upstream/main
+    git checkout e2.3.1 -- README.md
+    
 static analysis::
 
     mypy --strict --disable-error-code attr-defined --disable-error-code no-untyped-call --disable-error-code no-untyped-def -m <file as it appears in python's import statement>
