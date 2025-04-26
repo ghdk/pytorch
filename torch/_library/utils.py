@@ -2,12 +2,23 @@
 import dataclasses
 import inspect
 import sys
-from typing import Any, Callable, Dict, Iterable, Iterator, Tuple, Union
+import warnings
+from collections.abc import Iterable, Iterator
+from typing import Any, Callable, Union
 
 import torch
 import torch.utils._pytree as pytree
 from torch import _C, _utils_internal
 from torch._ops import OpOverload
+
+
+def warn_deploy(stacklevel=3):
+    warnings.warn(
+        "Python torch.library APIs do nothing under torch::deploy (multipy). "
+        "Please instead use C++ custom operator registration APIs.",
+        RuntimeWarning,
+        stacklevel=stacklevel,
+    )
 
 
 @dataclasses.dataclass
@@ -45,7 +56,7 @@ def get_source(stacklevel: int) -> str:
     return source
 
 
-def parse_namespace(qualname: str) -> Tuple[str, str]:
+def parse_namespace(qualname: str) -> tuple[str, str]:
     splits = qualname.split("::")
     if len(splits) != 2:
         raise ValueError(
@@ -179,8 +190,8 @@ def fill_defaults(schema, args, kwargs):
 
 
 def zip_schema(
-    schema: _C.FunctionSchema, args: Tuple[Any, ...], kwargs: Dict[str, Any]
-) -> Iterable[Tuple[_C.Argument, Any]]:
+    schema: _C.FunctionSchema, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> Iterable[tuple[_C.Argument, Any]]:
     """zips schema.arguments and (args, kwargs) together.
 
     Assumes that (args, kwargs) were the inputs to some torch._ops.OpOverload:
@@ -269,17 +280,17 @@ def requires_set_python_module() -> bool:
 
 def handle_dispatch_mode(curr_mode, op_overload, *args, **kwargs):
     assert isinstance(curr_mode, torch.utils._python_dispatch.TorchDispatchMode)
-    overload_types = []
     args_flattened, _ = torch.utils._pytree.tree_flatten((args, kwargs.values()))
-    for a in args_flattened:
-        # TODO: need to double check the semantics of the "types" argument to torch_dispatch.
-        # It's generated in PyInterpreter.cpp, but seems to be generated in two places,
-        # where in one case we only include tensors with the python key, and in another
-        # we include **all** tensors.
-        if isinstance(a, torch.Tensor) and torch._C._dispatch_keys(a).has(
-            torch._C.DispatchKey.Python
-        ):
-            overload_types.append(type(a))
+    # TODO: need to double check the semantics of the "types" argument to torch_dispatch.
+    # It's generated in PyInterpreter.cpp, but seems to be generated in two places,
+    # where in one case we only include tensors with the python key, and in another
+    # we include **all** tensors.
+    overload_types = [
+        type(a)
+        for a in args_flattened
+        if isinstance(a, torch.Tensor)
+        and torch._C._dispatch_keys(a).has(torch._C.DispatchKey.Python)
+    ]
     # TODO: check that I got these args correct (in C++, we pass in "0000"??)
 
     return curr_mode.__torch_dispatch__(op_overload, overload_types, args, kwargs)
@@ -322,7 +333,7 @@ def get_device_arg_index(schema: _C.FunctionSchema) -> Union[int, None]:
 
 
 def iter_tensors(
-    args: Tuple[Any], kwargs: Dict[str, Any], allowed_nesting: int = 1
+    args: tuple[Any], kwargs: dict[str, Any], allowed_nesting: int = 1
 ) -> Iterator[torch.Tensor]:
     def check(arg):
         if isinstance(arg, torch.Tensor):
@@ -360,6 +371,31 @@ def check_aliasing_constraint(name, prev, result, get_module=lambda: "???"):
                 f"operator to not return y."
             )
         storages.add(key)
+
+
+def _c_check_aliasing_constraint(name, args, kwargs, result, get_module=lambda: "???"):
+    """
+    custom operators' outputs must not have any aliases
+    This version uses C++ implementation for perf.
+    Only List container is supported.
+    Tensors in Lists with not only Tensors are checked.
+    """
+    tuple_result = result
+    if not isinstance(result, tuple):
+        tuple_result = (result,)
+    if _C._any_output_is_alias_to_input_or_output(args, kwargs, tuple_result):
+        raise RuntimeError(
+            f"{name} (with implementation in {get_module()}): "
+            f"The output of this custom operator (1) must not "
+            f"also be an input to this custom operator and "
+            f"(2) may not alias any inputs to this custom operator "
+            f"or other returns. "
+            f"The most common way to trigger this error is if "
+            f"we have y = custom_op(x) and y and x are the same Tensor. "
+            f"Please instead return a clone of the offending output "
+            f"tensor(s) (e.g. return x.clone()) or refactor the custom "
+            f"operator to not return y."
+        )
 
 
 class MutationChecker:
@@ -453,3 +489,15 @@ def has_fake_kernel(op: torch._ops.OpOverload) -> bool:
         if opdef._abstract_fn is not None:
             return True
     return False
+
+
+def mutated_args_kwargs(schema: _C.FunctionSchema) -> tuple[list[int], list[str]]:
+    idxs = []
+    keys = []
+    for i, info in enumerate(schema.arguments):
+        if info.alias_info is not None and info.alias_info.is_write:
+            if info.kwarg_only:
+                keys.append(info.name)
+            else:
+                idxs.append(i)
+    return idxs, keys

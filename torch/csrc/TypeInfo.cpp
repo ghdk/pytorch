@@ -123,16 +123,15 @@ static PyObject* THPDTypeInfo_bits(THPDTypeInfo* self, void*) {
 }
 
 #define _AT_DISPATCH_FINFO_TYPES(TYPE, NAME, ...) \
-  AT_DISPATCH_FLOATING_AND_COMPLEX_TYPES_AND6(    \
-      at::kHalf,                                  \
-      at::ScalarType::BFloat16,                   \
-      at::ScalarType::Float8_e5m2,                \
-      at::ScalarType::Float8_e5m2fnuz,            \
-      at::ScalarType::Float8_e4m3fn,              \
-      at::ScalarType::Float8_e4m3fnuz,            \
+  AT_DISPATCH_V2(                                 \
       TYPE,                                       \
       NAME,                                       \
-      __VA_ARGS__)
+      AT_WRAP(__VA_ARGS__),                       \
+      AT_EXPAND(AT_FLOATING_TYPES),               \
+      AT_EXPAND(AT_COMPLEX_TYPES),                \
+      at::kHalf,                                  \
+      at::ScalarType::BFloat16,                   \
+      AT_EXPAND(AT_FLOAT8_TYPES))
 
 static PyObject* THPFInfo_eps(THPFInfo* self, void*) {
   HANDLE_TH_ERRORS
@@ -273,8 +272,7 @@ static PyObject* THPIInfo_str(THPIInfo* self) {
   return !PyErr_Occurred() ? THPUtils_packString(oss.str().c_str()) : nullptr;
 }
 
-// NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays)
-static struct PyGetSetDef THPFInfo_properties[] = {
+static const std::initializer_list<PyGetSetDef> THPFInfo_properties = {
     {"bits", (getter)THPDTypeInfo_bits, nullptr, nullptr, nullptr},
     {"eps", (getter)THPFInfo_eps, nullptr, nullptr, nullptr},
     {"max", (getter)THPFInfo_max, nullptr, nullptr, nullptr},
@@ -288,11 +286,6 @@ static struct PyGetSetDef THPFInfo_properties[] = {
     {"resolution", (getter)THPFInfo_resolution, nullptr, nullptr, nullptr},
     {"dtype", (getter)THPFInfo_dtype, nullptr, nullptr, nullptr},
     {nullptr}};
-
-// NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays)
-static PyMethodDef THPFInfo_methods[] = {
-    {nullptr} /* Sentinel */
-};
 
 PyTypeObject THPFInfoType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
@@ -322,9 +315,10 @@ PyTypeObject THPFInfoType = {
     0, /* tp_weaklistoffset */
     nullptr, /* tp_iter */
     nullptr, /* tp_iternext */
-    THPFInfo_methods, /* tp_methods */
+    nullptr, /* tp_methods */
     nullptr, /* tp_members */
-    THPFInfo_properties, /* tp_getset */
+    // NOLINTNEXTLINE(*const-cast)
+    const_cast<PyGetSetDef*>(std::data(THPFInfo_properties)), /* tp_getset */
     nullptr, /* tp_base */
     nullptr, /* tp_dict */
     nullptr, /* tp_descr_get */
@@ -335,18 +329,12 @@ PyTypeObject THPFInfoType = {
     THPFInfo_pynew, /* tp_new */
 };
 
-// NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays)
-static struct PyGetSetDef THPIInfo_properties[] = {
+static const std::initializer_list<PyGetSetDef> THPIInfo_properties = {
     {"bits", (getter)THPDTypeInfo_bits, nullptr, nullptr, nullptr},
     {"max", (getter)THPIInfo_max, nullptr, nullptr, nullptr},
     {"min", (getter)THPIInfo_min, nullptr, nullptr, nullptr},
     {"dtype", (getter)THPIInfo_dtype, nullptr, nullptr, nullptr},
     {nullptr}};
-
-// NOLINTNEXTLINE(modernize-avoid-c-arrays,cppcoreguidelines-avoid-non-const-global-variables,cppcoreguidelines-avoid-c-arrays)
-static PyMethodDef THPIInfo_methods[] = {
-    {nullptr} /* Sentinel */
-};
 
 PyTypeObject THPIInfoType = {
     PyVarObject_HEAD_INIT(nullptr, 0)
@@ -376,9 +364,10 @@ PyTypeObject THPIInfoType = {
     0, /* tp_weaklistoffset */
     nullptr, /* tp_iter */
     nullptr, /* tp_iternext */
-    THPIInfo_methods, /* tp_methods */
+    nullptr, /* tp_methods */
     nullptr, /* tp_members */
-    THPIInfo_properties, /* tp_getset */
+    // NOLINTNEXTLINE(*const-cast)
+    const_cast<PyGetSetDef*>(std::data(THPIInfo_properties)), /* tp_getset */
     nullptr, /* tp_base */
     nullptr, /* tp_dict */
     nullptr, /* tp_descr_get */
