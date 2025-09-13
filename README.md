@@ -67,11 +67,23 @@ script is used to build the extensions, examples
 
 ```bash
 # Linux
-                              CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0                                     python setup.py build --build-lib=./build/lib install
+                              CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0 EXT_USE_LLVM_CONFIG=/usr/bin/llvm-config                                                          python setup.py  build --build-lib=./build/lib  install
 
 # MacOS
-MACOSX_DEPLOYMENT_TARGET=14.5 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=1 EXT_USE_LMDB=/root/to/lmdb/0.9.33/  python setup.py install
+MACOSX_DEPLOYMENT_TARGET=14.5 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=1 EXT_USE_LLVM_CONFIG=/root/to/llvm\@14/14.0.6/bin/llvm-config  EXT_USE_LMDB=/root/to/lmdb/0.9.33/  python setup.py install
 ```
+
+## Prepare
+
+In order to prepare the data we run
+
+```bash
+# Linux, MacOS
+                              CC=clang CXX=clang++ EXT_USE_WORKSPACE=/mnt/macos/pytorch  python /mnt/macos/pytorch/extensions/llvmast/setup.py  prepare
+```
+
+The flags for LLVM are read from `extensions/llvmast/cached_cflags.py` which is
+generated during the build step.
 
 ## Bibliography
 

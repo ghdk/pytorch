@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <torch/extension.h>
 #include <pybind11/functional.h>
+#include <pybind11/iostream.h>
 
 #ifndef __cpp_lib_span
 #include <gsl/span>

@@ -9,6 +9,7 @@ from setuptools import setup, Extension, Command
 from torch.utils import cpp_extension
 
 IS_LINUX = 'Linux' in platform.platform()
+EXT_USE_LLVM_CONFIG = os.environ.get("EXT_USE_LLVM_CONFIG")
 EXT_USE_LMDB = os.environ.get("EXT_USE_LMDB")
 
 class clean(Command):
@@ -88,6 +89,59 @@ def gsl():
                                   check=True)
     return ['-I' + path + '/include']
 
+def llvm_config():
+    import subprocess
+    import re
+    import sys
+    cmd = [EXT_USE_LLVM_CONFIG, '--cppflags']
+    proc = subprocess.run(cmd,
+                          stdout = subprocess.PIPE,
+                          stderr = subprocess.PIPE,
+                          check=True)
+    cppflags = proc.stdout.decode('ascii')
+    cppflags = cppflags.strip()
+    cppflags = cppflags.split(' ')
+    cmd = [EXT_USE_LLVM_CONFIG, '--ldflags']
+    proc = subprocess.run(cmd,
+                          stdout = subprocess.PIPE,
+                          stderr = subprocess.PIPE,
+                          check=True)
+    ldflags = proc.stdout.decode('ascii')
+    ldflags = ldflags.strip()
+    ldflags = ldflags.split(' ')
+    cmd = [EXT_USE_LLVM_CONFIG, '--libs', 'all', '--ignore-libllvm']
+    proc = subprocess.run(cmd,
+                          stdout = subprocess.PIPE,
+                          stderr = subprocess.PIPE,
+                          check=True)
+    libs = proc.stdout.decode('ascii')
+    libs = libs.strip()
+    libs = libs.split(' ')
+    clanglibs = ['-lclangFrontend',
+                 '-lclangSerialization',
+                 '-lclangDriver',
+                 '-lclangParse',
+                 '-lclangSema',
+                 '-lclangAnalysis',
+                 '-lclangAST',
+                 '-lclangASTMatchers',
+                 '-lclangBasic',
+                 '-lclangEdit',
+                 '-lclangLex',
+                 '-lclangTooling']
+    libs = clanglibs + libs
+    cmd = [EXT_USE_LLVM_CONFIG, '--libdir']
+    proc = subprocess.run(cmd,
+                          stdout = subprocess.PIPE,
+                          stderr = subprocess.PIPE,
+                          check=True)
+    libdir = proc.stdout.decode('ascii')
+    libdir = libdir.strip()
+    libdir = [libdir]
+    return (cppflags, libdir, ldflags, libs)
+
+llvm_conf_flags = llvm_config() if EXT_USE_LLVM_CONFIG else None
+
 lmdb_conf_flags = ([f'-I{EXT_USE_LMDB}/include'],
                    [f'{EXT_USE_LMDB}/lib'],
                    [f'-L{EXT_USE_LMDB}/lib', '-llmdb'],
@@ -98,6 +152,20 @@ gsl_conf_flags = gsl()
 extra_cpp_flags = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-ferror-limit=1', '-fvisibility=hidden', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_cpp_flags += gsl_conf_flags
 extra_ld_flags = []
+
+spl = lambda p: ["-I"+path+p for path in sys.path if 'site-packages' in path]
+with open("./llvmast/cached_cflags.py", 'w') as f:
+    print(f"""CFLAGS={extra_cpp_flags + llvm_conf_flags[0] + lmdb_conf_flags[0] +
+                      ["-I" + get_paths()['include']] +
+                      ["-resource-dir", "/Library/Developer/CommandLineTools/usr/lib/clang/15.0.0"] +
+                      ["-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"] +
+                      ["-I/usr/local/include"] +
+                      spl("/torch/include") +
+                      spl("/torch/include/torch/csrc/api/include") +
+                      spl("/torch/include/TH") + 
+                      spl("/torch/include/THC") +
+                      ["-Wno-unused-variable", "-Wno-unused-parameter"]}""",
+          file=f)
 
 setup(name='extensions',
       packages=[],
@@ -165,7 +233,23 @@ setup(name='extensions',
                                               sources=['threadpool/threadpool.cc'],
                                               extra_compile_args=extra_cpp_flags,
                                               extra_link_args= extra_ld_flags),
-      ],
+      ] + ([
+                   cpp_extension.CppExtension('llvmast.llvmast',
+                                              sources=['llvmast/llvmast.cc'],
+                                              runtime_library_dirs = ['$ORIGIN/../graph']
+                                                                   + ['$ORIGIN/../graphdb']
+                                                                   + llvm_conf_flags[1] + lmdb_conf_flags[1],
+                                              library_dirs = []
+                                                           + ([f'{buildlib()}/graph'] if IS_LINUX else [])
+                                                           + ([f'{buildlib()}/graphdb'] if IS_LINUX else []),
+                                              extra_compile_args = extra_cpp_flags + llvm_conf_flags[0] + lmdb_conf_flags[0],
+                                              extra_link_args = extra_ld_flags
+                                                              + llvm_conf_flags[2] + llvm_conf_flags[3]
+                                                              + (['-ltinfo'] if IS_LINUX else [])
+                                                              + (['-l:graph.so'] if IS_LINUX else [])
+                                                              + (['-l:graphdb.so'] if IS_LINUX else [])
+                                                              + lmdb_conf_flags[2]),
+      ] if EXT_USE_LLVM_CONFIG else []),
       cmdclass={'build_ext': cpp_extension.BuildExtension,
                 'clean': clean,
                 'test': unittest},

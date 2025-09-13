@@ -26,7 +26,7 @@ public:
     void edges(edges_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1) const;
 
     bool vertex(feature::index_t i);
-    feature::index_t vertex(feature::index_t index, bool truth);
+    VISIBLE feature::index_t vertex(feature::index_t index, bool truth);
     bool edge(feature::index_t i, feature::index_t j);
     void edge(feature::index_t i, feature::index_t j, bool truth);
 

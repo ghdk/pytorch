@@ -17,6 +17,9 @@ build::
     git submodule update --init --recursive --jobs 11
     python -m sysconfig | grep symbolic
     MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
+      EXT_USE_LLVM_CONFIG=/path/to/llvm\@14/14.0.6/bin/llvm-config
+      EXT_USE_LMDB=/path/to/lmdb/0.9.33/
+
       python setup.py  build --build-lib=./build/lib  install
                        build -j11 install test clean
 
@@ -25,6 +28,7 @@ docker/linux::
     aptitude install locales emacs-nox wget
     emacs -nw /etc/locale.gen, locale-gen
     aptitude install python3 python3-venv python3-dev gcc g++ gdb git cmake valgrind
+    aptitude install clang llvm liblmdb-dev libclang-14-dev libpolly-14-dev
 
 unittest::
 
