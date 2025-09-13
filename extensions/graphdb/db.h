@@ -340,7 +340,7 @@ public:
             mdb_view<V> data_v(&data, 1);
             rc = get(key_v, data_v);
             if(MDB_SUCCESS == rc)
-                data = *(data_v.begin());
+                memcpy(&data, data_v.begin(), sizeof(data));
         }
         else
             static_assert(extensions::false_always<K,V>::value);

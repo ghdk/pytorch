@@ -149,9 +149,13 @@ lmdb_conf_flags = ([f'-I{EXT_USE_LMDB}/include'],
 
 gsl_conf_flags = gsl()
 
-extra_cpp_flags = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-ferror-limit=1', '-fvisibility=hidden', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
+sanitizer_flags = ['-fsanitize=undefined']
+
+extra_cpp_flags  = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-ferror-limit=1', '-fvisibility=hidden', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_cpp_flags += gsl_conf_flags
-extra_ld_flags = []
+extra_cpp_flags += sanitizer_flags
+extra_ld_flags  = []
+extra_ld_flags += sanitizer_flags
 
 spl = lambda p: ["-I"+path+p for path in sys.path if 'site-packages' in path]
 with open("./llvmast/cached_cflags.py", 'w') as f:
@@ -210,10 +214,6 @@ setup(name='extensions',
                                      runtime_library_dirs = [] + lmdb_conf_flags[1],
                                      extra_compile_args=extra_cpp_flags + lmdb_conf_flags[0],
                                      extra_link_args= extra_ld_flags + lmdb_conf_flags[2]),
-          cpp_extension.CppExtension('threadpool.threadpool',
-                                     sources=['threadpool/threadpool.cc'],
-                                     extra_compile_args=extra_cpp_flags,
-                                     extra_link_args= extra_ld_flags),
       ] + ([
           cpp_extension.CppExtension('llvmast.llvmast',
                                      sources=['llvmast/llvmast.cc'],
@@ -232,8 +232,10 @@ setup(name='extensions',
                                                      + lmdb_conf_flags[2]),
       ] if EXT_USE_LLVM_CONFIG else []) +
       [
-          cpp_extension.CppExtension('theory.theory',
-                                     sources=['theory/linalg/matrix.cc'],
+          cpp_extension.CppExtension('theory',
+                                     sources=['theory/module.cc',
+                                              'theory/linalg/matrix.cc',
+                                              'theory/parallel/parallel.cc'],
                                      extra_compile_args=extra_cpp_flags,
                                      extra_link_args= extra_ld_flags),
       ],

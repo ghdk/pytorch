@@ -177,8 +177,15 @@ torch::Tensor transpose(torch::Tensor A)
     return R;
 }
 
-torch::Tensor reverse(torch::Tensor A)
+bool is_symmetric(torch::Tensor A)
 {
+    torch::Tensor T = transpose(A);
+    return A.equal(T);
+}
+
+torch::Tensor inverse(torch::Tensor A)
+{
+    // A * A^(-1) = I
     int64_t m = A.sizes()[0];
     torch::Tensor I = identity(m);
     I = I.to(A.dtype());
@@ -188,7 +195,7 @@ torch::Tensor reverse(torch::Tensor A)
     gauss_jordan::downward(R);
     gauss_jordan::upward(R);
 
-    // Extract the identity matrix that should now hold the reverse matrix.
+    // Extract the identity matrix that should now hold the inverse matrix.
     R = R.slice(0, R.sizes()[0] - m, R.sizes()[0])
          .slice(1, R.sizes()[1] - m, R.sizes()[1]);
 
@@ -254,19 +261,22 @@ torch::Tensor basis(torch::Tensor A, torch::Tensor REF)
     return R;
 }
 
-int64_t rank(torch::Tensor REF)
+torch::Tensor rank(torch::Tensor REF)
 {
     // REF is a matrix holding the row echelon form of a matrix.
 
     int64_t m = REF.sizes()[0];
     int64_t n = REF.sizes()[1];
 
-    int64_t ret = 0;
+    torch::Tensor ret = torch::zeros({1}, REF.options());
 
     auto kernel = [m,n,&ret](auto REF)
     {
         int64_t pivot_r = 0;
         int64_t pivot_c = 0;
+
+        using held_t = extensions::accessor_held_t<decltype(REF)>;
+        held_t sum = (held_t)0;
 
         while(pivot_r < m and pivot_c < n)
         {
@@ -274,10 +284,12 @@ int64_t rank(torch::Tensor REF)
                 pivot_c += 1;
             else
             {
-                ret += 1;
+                sum += 1;
                 pivot_r += 1;
             }
         }
+
+        ret[0] = sum;
     };
 
     if(REF.dtype() == torch::kInt64)
@@ -292,6 +304,101 @@ int64_t rank(torch::Tensor REF)
     }
 
     return ret;
+}
+
+torch::Tensor determinant(torch::Tensor REF)
+{
+    // REF is a matrix holding the row echelon form of a matrix.
+
+    int64_t m = REF.sizes()[0];
+    int64_t n = REF.sizes()[1];
+
+    torch::Tensor ret = torch::zeros({1}, REF.options());
+
+    auto kernel = [m,n,&ret](auto REF)
+    {
+        int64_t pivot_r = 0;
+        int64_t pivot_c = 0;
+
+        using held_t = extensions::accessor_held_t<decltype(REF)>;
+        held_t determinant = (held_t)1;
+
+        while(pivot_r < m and pivot_c < n)
+        {
+            determinant *= REF[pivot_r][pivot_c];
+            pivot_c += 1;
+            pivot_r += 1;
+        }
+
+        ret[0] = determinant;
+    };
+
+    if(REF.dtype() == torch::kInt64)
+    {
+        auto acc = REF.accessor<int64_t, 2UL>();
+        kernel(acc);
+    }
+    if(REF.dtype() == torch::kFloat)
+    {
+        auto acc = REF.accessor<float, 2UL>();
+        kernel(acc);
+    }
+
+    return ret;
+}
+
+torch::Tensor trace(torch::Tensor A)
+{
+    int64_t m = A.sizes()[0];
+    int64_t n = A.sizes()[1];
+
+    assertm(m == n, "Expecting:", m, "==", n);
+
+    torch::Tensor ret = torch::zeros({1}, A.options());
+
+    auto kernel = [m,&ret](auto A)
+    {
+        using held_t = extensions::accessor_held_t<decltype(A)>;
+        held_t sum = (held_t)0;
+
+        for(size_t i = 0; i < m; i++)
+        {
+            sum += A[i][i];
+        }
+
+        ret[0] = sum;
+    };
+
+    if(A.dtype() == torch::kInt64)
+    {
+        auto acc = A.accessor<int64_t, 2UL>();
+        kernel(acc);
+    }
+    if(A.dtype() == torch::kFloat)
+    {
+        auto acc = A.accessor<float, 2UL>();
+        kernel(acc);
+    }
+    return ret;
+}
+
+torch::Tensor transition(torch::Tensor FROM, torch::Tensor TO)
+{
+    // Calculate the transition matrix, Elementary Linear Algebra, eq. 14, p. 260.
+    assertions::assert_matrices_are_of_equal_dimensions(FROM, TO);
+    assertions::assert_matrices_are_of_the_same_type(FROM, TO);
+    assertions::assert_matrix_is_square(FROM);
+
+    torch::Tensor R = augment(TO,FROM);
+
+    gauss_jordan::downward(R);
+    gauss_jordan::upward(R);
+
+    // [TO|FROM] becomes [I|transition matrix]
+    R = R.slice(0, R.sizes()[0] - TO.sizes()[0], R.sizes()[0])
+         .slice(1, R.sizes()[1] - TO.sizes()[1], R.sizes()[1]);
+
+    return R;
 }
 
 }}}}  // namespace extensions::theory::linalg::matrix

@@ -10,11 +10,15 @@ python::
     pip install -r ./requirements.txt
     pip install matplotlib expecttest hypothesis mypy pytest pandas networkx scipy lmdb
 
+brew::
+
+    brew install --with-toolchain llvm
+
 build::
 
     git submodule deinit --all
     git submodule sync
-    git submodule update --init --recursive --jobs 11
+    git submodule update --init --recursive --depth=1  --single-branch --jobs 11
     python -m sysconfig | grep symbolic
     MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
       EXT_USE_LLVM_CONFIG=/path/to/llvm\@14/14.0.6/bin/llvm-config
@@ -24,8 +28,8 @@ build::
                        build -j11 install test clean
 
 docker/linux::
-    apt-get install apt-file aptitude
-    aptitude install locales emacs-nox wget
+    export DOCKER_DEFAULT_PLATFORM=linux/amd64
+    apt-get install apt-file locales emacs-nox wget
     emacs -nw /etc/locale.gen, locale-gen
     aptitude install python3 python3-venv python3-dev gcc g++ gdb git cmake valgrind
     aptitude install clang llvm liblmdb-dev libclang-14-dev libpolly-14-dev
@@ -44,6 +48,10 @@ gdb::
 
     gdb -iex "set auto-load safe-path /" -iex "set breakpoint pending on" -ex "break permutation.h:32" -ex run --args python3 -m unittest -v solver_byz_test.Test.test_sum_of_time_signatures_of_syllables_constraint
 
+priv::
+
+    `<https://docs.github.com/en/repositories/creating-and-managing-repositories/duplicating-a-repository>`_
+
 update::
 
     git checkout --track origin/viable/strict
@@ -57,11 +65,12 @@ update::
 
 update README.md::
 
+    git checkout main
     git fetch upstream main
-    git merge upstream/main  # single merge conflict README.md, --abort
-    git merge -X ours upstream/main
+    git reset --hard upstream/main
+    git push -u origin main
     git checkout e2.3.1 -- README.md
-    
+
 static analysis::
 
     mypy --strict --disable-error-code attr-defined --disable-error-code no-untyped-call --disable-error-code no-untyped-def -m <file as it appears in python's import statement>
@@ -85,6 +94,21 @@ ramfs::
 
     ? RAMFS=/Volumes/RAMFS python -B -m unittest -v test_graphdb.Test.test_graph_iter_edge &
 
+libstdc++-v3::
+
+    mkdir gcc
+    git init
+    git remote add origin git://gcc.gnu.org/git/gcc.git
+    git config core.sparseCheckout true
+    git pull --depth=1 origin master
+
+    # cat .git/info/sparse-checkout
+    libstdc++-v3
+
+    or
+
+    git clone --depth=1 --single-branch <repo>
+
 Codebase
 ========
 
@@ -92,6 +116,7 @@ Aten::
 
     /pytorch/aten/src/ATen/core/Tensor.h
     /pytorch/aten/src/ATen/test - APIs
+    /pytorch/aten/src/ATen/Parallel.h
 
 Eigen::
 

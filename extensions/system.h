@@ -44,13 +44,13 @@
 
 namespace extensions
 {
-template<typename ...Args>
-bool assertlog(const Args& ...args)
-{
-    ((std::cerr << args << ' '), ...) << ": ";
-    return false;
-}
-#define assertm(expr, ...) assert((expr) || extensions::assertlog(__VA_ARGS__))
+    template<typename ...Args>
+    bool assertlog(const Args& ...args)
+    {
+        ((std::cerr << args << ' '), ...) << ": ";
+        return false;
+    }
+    #define assertm(expr, ...) assert((expr) || extensions::assertlog(__VA_ARGS__))
 
     template <typename T> using ptr_t = std::shared_ptr<T>;
     template <typename T> using ptr_w = std::weak_ptr<T>;
@@ -61,6 +61,16 @@ bool assertlog(const Args& ...args)
         int status = 0;
         std::unique_ptr<char, decltype(::free)*> ret{abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status), ::free};
         return 0 == status ? ret.get() : name;
+    }
+
+    template <typename Iterable>
+    static std::string dump(Iterable iterable)
+    {
+        return std::accumulate(std::next(iterable.begin()), iterable.end(),
+                               std::to_string(*(iterable.begin())),
+                               [](std::string ret, typename Iterable::value_type value){
+            return std::move(ret) + "," + std::to_string(value);
+        });
     }
 
 #ifdef __cpp_lib_hardware_interference_size
@@ -85,6 +95,18 @@ bool assertlog(const Args& ...args)
                                              && std::is_same_v<std::size_t, decltype(std::declval<std::remove_cv_t<T>>().size())>>>
     : std::true_type
     {};
+
+    template<typename T>
+    struct accessor_held;
+
+    template<typename H, size_t N>
+    struct accessor_held<torch::TensorAccessor<H,N>>
+    {
+        using type = H;
+    };
+
+    template<typename T>
+    using accessor_held_t = typename accessor_held<T>::type;
 
 }  // namespace extensions
 

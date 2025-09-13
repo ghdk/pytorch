@@ -1,7 +1,7 @@
 import unittest
 
 import torch
-from theory.theory import matrix
+from theory import matrix
 
 
 
@@ -71,7 +71,7 @@ class Test(unittest.TestCase):
         R = matrix.transpose(A)
         self.assertTrue(torch.equal(M,R), f"{M} == {R}")
         
-    def test_reverse(self):
+    def test_inverse(self):
         # mml-book, example 2.4
         A = torch.Tensor([[1,2,1],
                           [4,4,5],
@@ -81,7 +81,7 @@ class Test(unittest.TestCase):
                           [ 2, 1,-1],
                           [ 4, 5,-4]])
         
-        R = matrix.reverse(A)
+        R = matrix.inverse(A)
         self.assertTrue(torch.equal(M,R), f"{M} == {R}")
         
         I = matrix.identity(3)
@@ -97,7 +97,7 @@ class Test(unittest.TestCase):
                           [ 1,-1, 2,-2],
                           [ 1,-1, 1,-1],
                           [-1, 0,-1, 2]])
-        R = matrix.reverse(A)
+        R = matrix.inverse(A)
         self.assertTrue(torch.equal(M,R), f"{M} == {R}")
 
     def test_basis(self):
