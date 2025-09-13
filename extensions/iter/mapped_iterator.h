@@ -38,13 +38,6 @@ public:  // methods
             ++std::get<0>(range_);
         return *this;
     }
-
-    MappedIterator const& operator++(int)
-    {
-        MappedIterator ret = *this;
-        ++(*this);
-        return ret;
-    }
 public:  // copy/move semantics
     explicit MappedIterator(iterator_t&& begin, iterator_t&& end, map_t const& f)
         : range_{std::move(begin), std::move(end)}
