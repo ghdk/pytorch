@@ -43,6 +43,43 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
             return std::make_shared<extensions::graphdb::schema::TransactionNode>(std::ref(env), extensions::graphdb::flags::txn::NESTED_RW);
           });
 
+
+    /**
+     * Since the key_t is formed by the size of the key, in Python we cannot
+     * expose all the key type aliases. Instead we have one alias per key size.
+     */
+
+    auto pyks = py::class_<extensions::graphdb::schema::single_key_t, extensions::ptr_t<extensions::graphdb::schema::single_key_t>>(m, "__single_key__");
+    auto pykd = py::class_<extensions::graphdb::schema::double_key_t, extensions::ptr_t<extensions::graphdb::schema::double_key_t>>(m, "__double_key__");
+    auto pykt = py::class_<extensions::graphdb::schema::triple_key_t, extensions::ptr_t<extensions::graphdb::schema::triple_key_t>>(m, "__triple_key__");
+
+    m.def("make_list_key"          , +[](typename extensions::graphdb::schema::double_key_t::value_type a,
+                                         typename extensions::graphdb::schema::double_key_t::value_type b)
+                                         { return extensions::graphdb::schema::double_key_t({a, b}); });
+    m.def("make_vertex_feature_key", +[](typename extensions::graphdb::schema::triple_key_t::value_type a,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type b,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type c)
+                                         { return extensions::graphdb::schema::triple_key_t({a, b, c}); });
+    m.def("make_edge_feature_key"  , +[](typename extensions::graphdb::schema::triple_key_t::value_type a,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type b,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type c)
+                                         { return extensions::graphdb::schema::triple_key_t({a, b, c}); });
+    m.def("make_graph_feature_key" , +[](typename extensions::graphdb::schema::double_key_t::value_type a,
+                                         typename extensions::graphdb::schema::double_key_t::value_type b)
+                                         { return extensions::graphdb::schema::double_key_t({a, b}); });
+    m.def("make_graph_adj_mtx_key" , +[](typename extensions::graphdb::schema::double_key_t::value_type a,
+                                         typename extensions::graphdb::schema::double_key_t::value_type b)
+                                         { return extensions::graphdb::schema::double_key_t({a, b}); });
+    m.def("make_graph_vtx_set_key" , +[](typename extensions::graphdb::schema::single_key_t::value_type a)
+                                         { return extensions::graphdb::schema::single_key_t({a}); });
+
+    m.def("view_list_key"          , +[](extensions::graphdb::schema::double_key_t key){ return std::tuple{key.data()[0], key.data()[1]}; });
+    m.def("view_vertex_feature_key", +[](extensions::graphdb::schema::triple_key_t key){ return std::tuple{key.data()[0], key.data()[1], key.data()[2]}; });
+    m.def("view_edge_feature_key"  , +[](extensions::graphdb::schema::triple_key_t key){ return std::tuple{key.data()[0], key.data()[1], key.data()[2]}; });
+    m.def("view_graph_feature_key" , +[](extensions::graphdb::schema::double_key_t key){ return std::tuple{key.data()[0], key.data()[1]}; });
+    m.def("view_graph_adj_mtx_key" , +[](extensions::graphdb::schema::double_key_t key){ return std::tuple{key.data()[0], key.data()[1]}; });
+    m.def("view_graph_vtx_set_key" , +[](extensions::graphdb::schema::single_key_t key){ return std::tuple{key.data()[0]}; });
+
     {
         /**
          * Test submodule
@@ -53,7 +90,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_cardinalities",
                +[]{
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc = 0;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -125,7 +162,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_tensor_api",
                +[]{
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc = 0;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -161,7 +198,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_string_api",
                +[]{
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc = 0;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -190,7 +227,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_int_api",
                +[]{
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc = 0;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -221,7 +258,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -341,7 +378,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -418,7 +455,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -489,7 +526,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -554,7 +591,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -633,7 +670,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -673,7 +710,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -736,7 +773,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -790,7 +827,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_transaction_node",
                +[]{
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc = 0;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
@@ -815,7 +852,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_transaction_api",
                +[]{
 
-                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   std::string filename = "./test.db";
                    int rc = 0;
 
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);

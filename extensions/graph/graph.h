@@ -38,7 +38,7 @@ public:
         return ret;
     }
 
-    static Graph make_graph(graphdb::schema::TransactionNode& parent, graph::feature::index_t graph)
+    static Graph make_graph(graphdb::schema::TransactionNode const& parent, graph::feature::index_t graph)
     {
         Graph ret;
         ret.storage_ = std::make_shared<storage::storage_t>(storage::Database(parent, graph));

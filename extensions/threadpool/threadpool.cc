@@ -16,7 +16,7 @@ using namespace extensions::rsse;
 void Ring::push(Ring::func_t f)
 {
     assert(!full());
-    assert(running_);  // catch use after join
+    assert(active_);  // catch use after join
     ring_[producer_] = f;
 
     MEMORY_BARRIER();
@@ -71,7 +71,7 @@ ThreadPool::~ThreadPool()
 void ThreadPool::join()
 {
     for(auto& r : rings_)
-        r.running_ = false;
+        r.active_ = false;
 
     MEMORY_BARRIER();
 
@@ -84,7 +84,7 @@ void ThreadPool::wait() const
 {
     for(auto& r : rings_)
     {
-        assert(r.running_);  // catch use after join
+        assert(r.active_);  // catch use after join
         while(!r.empty())
             continue;
     }
@@ -123,7 +123,7 @@ int ThreadPool::async([[maybe_unused]] policy::random p, typename Ring::func_t f
 
 void ThreadPool::run(Ring& ring, size_t thread)
 {
-    while(ring.running_)
+    while(ring.active_)
     {
         if(ring.empty()) continue;
         ring.visit(thread);
@@ -146,10 +146,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
             auto c = py::class_<ThreadPool, ptr_t<ThreadPool>>(mt, "ThreadPool");
             ThreadPool::def(c);
 
-            auto t = py::class_<Functor, ptr_t<Functor>>(mt, "FunctorPureVirtual");
+            auto t = py::class_<Kernel, ptr_t<Kernel>>(mt, "KernelPureVirtual");
 
-            auto f = py::class_<PyFunctor, Functor, ptr_t<PyFunctor>>(mt, "Functor");
-            PyFunctor::def(f);
+            auto f = py::class_<PyKernel, Kernel, ptr_t<PyKernel>>(mt, "Kernel");
+            PyKernel::def(f);
         }
 
     }

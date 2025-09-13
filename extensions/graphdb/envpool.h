@@ -9,8 +9,9 @@ class EnvironmentPool
 public:
     static Environment& environment(std::string const& filename)
     {
-        pool_.try_emplace(filename, filename, extensions::graphdb::schema::SCHEMA, extensions::graphdb::flags::env::DEFAULT);
-        return pool_.at(filename);
+        std::string db = std::filesystem::current_path().string() + "/" + filename;
+        pool_.try_emplace(db, db, extensions::graphdb::schema::SCHEMA, extensions::graphdb::flags::env::DEFAULT);
+        return pool_.at(db);
     }
 
 private:

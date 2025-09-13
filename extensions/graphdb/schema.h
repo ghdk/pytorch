@@ -329,6 +329,7 @@ public:
     const value_type* data() const noexcept { return const_cast<key_t*>(this)->data(); }
 
     value_type& graph(){ return data_[0]; }
+    value_type const& graph() const noexcept { return const_cast<key_t*>(this)->graph(); }
 
     template <size_t M = N, typename = std::enable_if_t<M >= 2>>
     value_type& vertex()
@@ -373,7 +374,7 @@ public:
     key_t& operator=(key_t const&) = default;
     key_t& operator=(key_t&&) = default;
 
-    key_t(std::initializer_list<value_type> list)
+    constexpr key_t(std::initializer_list<value_type> list)
     {
         assertm(list.size() == data_.size(), list.size(), data_.size());
 
@@ -396,12 +397,16 @@ public:
  * key_t instantiations.
  */
 
-using list_key_t           = std::enable_if_t<sizeof(key_t<size_t, 2>) == 2 * sizeof(size_t), key_t<size_t, 2>>;
-using vertex_feature_key_t = std::enable_if_t<sizeof(key_t<size_t, 3>) == 3 * sizeof(size_t), key_t<size_t, 3>>;
-using edge_feature_key_t   = std::enable_if_t<sizeof(key_t<size_t, 3>) == 3 * sizeof(size_t), key_t<size_t, 3>>;
-using graph_feature_key_t  = std::enable_if_t<sizeof(key_t<size_t, 2>) == 2 * sizeof(size_t), key_t<size_t, 2>>;
-using graph_adj_mtx_key_t  = std::enable_if_t<sizeof(key_t<size_t, 2>) == 2 * sizeof(size_t), key_t<size_t, 2>>;
-using graph_vtx_set_key_t  = std::enable_if_t<sizeof(key_t<size_t, 1>) == 1 * sizeof(size_t), key_t<size_t, 1>>;
+using single_key_t = std::enable_if_t<sizeof(key_t<size_t, 1>) == 1 * sizeof(size_t), key_t<size_t, 1>>;
+using double_key_t = std::enable_if_t<sizeof(key_t<size_t, 2>) == 2 * sizeof(size_t), key_t<size_t, 2>>;
+using triple_key_t = std::enable_if_t<sizeof(key_t<size_t, 3>) == 3 * sizeof(size_t), key_t<size_t, 3>>;
+
+using list_key_t           = double_key_t;
+using vertex_feature_key_t = triple_key_t;
+using edge_feature_key_t   = triple_key_t;
+using graph_feature_key_t  = double_key_t;
+using graph_adj_mtx_key_t  = double_key_t;
+using graph_vtx_set_key_t  = single_key_t;
 
 using meta_key_t = list_key_t;
 using meta_page_t = meta_key_t::value_type;

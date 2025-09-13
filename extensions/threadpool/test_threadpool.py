@@ -25,7 +25,7 @@ class Test(unittest.TestCase):
                 return thread
 
         for i in range(Test.__threadpool__.size() * Test.__threadpool__.size()):
-            Test.__threadpool__.rndasync(test.Functor(Job()))
+            Test.__threadpool__.rndasync(test.Kernel(Job()))
         Test.__threadpool__.wait()
         self.assertTrue(all(Job.__record__), f"{Job.__record__}")
 
@@ -38,6 +38,6 @@ class Test(unittest.TestCase):
                 Job.__record__[thread] += 1
                 return thread
 
-        Test.__threadpool__.bcasync(test.Functor(Job()))
+        Test.__threadpool__.bcasync(test.Kernel(Job()))
         Test.__threadpool__.wait()
         self.assertEqual([1] * Test.__threadpool__.size(), Job.__record__, f"{Job.__record__}")

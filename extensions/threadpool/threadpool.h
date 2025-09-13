@@ -6,7 +6,7 @@ namespace extensions { namespace rsse
 
 /**
  * We don't need to map jobs to rings, to require that rings are long enough
- * to hold all pending jobs. If a consumer finds a ring to be full, it can
+ * to hold all pending jobs. If a producer finds a ring to be full, it can
  * move on to the next thread. Also we don't need the producer to remain
  * unblocked, if we cannot find a ring we can loop until we do.
  *
@@ -37,10 +37,10 @@ inline constexpr broadcast bcasync {};
 inline constexpr random rndasync {};
 }
 
-class Functor
+class Kernel
 {
 public:
-    virtual ~Functor(){}
+    virtual ~Kernel(){}
     virtual int operator()(size_t) = 0;
 };
 
@@ -56,7 +56,7 @@ struct alignas(hardware_destructive_interference_size_double) Ring
 {
 public:
     using index_t = uint8_t;
-    using func_t = ptr_t<Functor>;
+    using func_t = ptr_t<Kernel>;
     static constexpr size_t ring_size = int((hardware_destructive_interference_size_double - 3 * sizeof(index_t)) / sizeof(func_t));
     using funcset_t = std::array<func_t, ring_size>;
 
@@ -64,7 +64,7 @@ public:
     Ring()
     : consumer_{0}
     , producer_{0}
-    , running_{true}
+    , active_{true}
     , ring_{}
     {}
     Ring(Ring const& other) = delete;
@@ -79,7 +79,7 @@ public:
 public:
     index_t consumer_;
     index_t producer_;
-    index_t running_;
+    index_t active_;
     funcset_t ring_;
 };
 
@@ -120,13 +120,13 @@ private:
             c.def(py::init<>());
 
             c.def("bcasync",
-                  +[](ptr_t<ThreadPool> self, ptr_t<Functor> f)
+                  +[](ptr_t<ThreadPool> self, ptr_t<Kernel> f)
                   {
                         return self->async(policy::bcasync, f);
                   },
                   py::call_guard<py::gil_scoped_release>());
             c.def("rndasync",
-                  +[](ptr_t<ThreadPool> self, ptr_t<Functor> f)
+                  +[](ptr_t<ThreadPool> self, ptr_t<Kernel> f)
                   {
                         return self->async(policy::rndasync, f);
                   },
@@ -136,7 +136,7 @@ private:
              * When Python code calls C++, and vice versa, the GIL is held.
              * Hence if we call wait or join from Python, the call will acquire
              * the GIL, preventing any of the threads from calling Python
-             * functions. Hence, if the rings hold Functor objects that are
+             * functions. Hence, if the rings hold Kernel objects that are
              * implemented in Python, by calling wait or join from Python we
              * effectively deadlock.
              *
@@ -157,15 +157,15 @@ private:
  * However, since we are passing shared_ptr objects between C++ and Python,
  * the lifetime of the trampoline objects does not span the lifetime of the
  * shared_ptr objects. To resolve this issue, we treat the Python objects as
- * callables, which we wrap in PyFunctor, and we push the PyFunctor in the
+ * callables, which we wrap in PyKernel, and we push the PyKernel in the
  * rings.
  */
-class PyFunctor: public Functor
+class PyKernel: public Kernel
 {
 public:
     using func_t = std::function<int(size_t)>;
 
-    PyFunctor(func_t f)
+    PyKernel(func_t f)
     : f_{f}
     {}
 
@@ -183,7 +183,7 @@ public:
     {
         using T = typename PY::type;
 
-        c.def(py::init<func_t>());
+        c.def(py::init<typename T::func_t>());
         c.def("__call__", &T::operator());
         return c;
     }

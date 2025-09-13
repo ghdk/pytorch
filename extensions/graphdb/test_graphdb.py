@@ -9,10 +9,10 @@ import tempfile
 import shutil
 import lmdb
 import random
+import traceback
 from graphdb import graphdb
 from bitarray import bitarray
 from graph import graph
-from inspect import currentframe, getframeinfo
 
 class Test(unittest.TestCase):
     
@@ -22,9 +22,10 @@ class Test(unittest.TestCase):
         
     def rm_test_dir(f):
         def impl(self):
-            f(self)
-            os.chdir('..')
-            shutil.rmtree(self._dir)  # leave behind if there was an assert
+            try: f(self)
+            except Exception as e: traceback.print_exception(e, file=sys.stderr)
+            else: shutil.rmtree(self._dir)  # leave behind if there was an assert
+            finally: os.chdir('..')
         return impl
 
     @rm_test_dir
@@ -110,7 +111,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_make_graph_db(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         def sub():
             txn = graphdb.make_transaction_node(filename)
@@ -140,7 +141,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_vertex_add(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         def sub():
             txn = graphdb.make_transaction_node(filename)
@@ -208,7 +209,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_vertex_expand(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         def sub():
             txn = graphdb.make_transaction_node(filename)
@@ -272,7 +273,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_vertex_delete(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         indexes = []
         def sub():
@@ -296,7 +297,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_is_vertex(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         txn = graphdb.make_transaction_node(filename)
         g = graph.make_graph_db(txn, graph_i)
@@ -310,7 +311,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_is_edge(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         txn = graphdb.make_transaction_node(filename)
         g = graph.make_graph_db(txn, graph_i)
@@ -329,7 +330,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_iter_vertex(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         txn = graphdb.make_transaction_node(filename)
         g = graph.make_graph_db(txn, graph_i)
@@ -342,7 +343,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graph_iter_edge(self):
-        filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
+        filename = f"./test.db"
         graph_i = 0xACE
         txn = graphdb.make_transaction_node(filename)
         g = graph.make_graph_db(txn, graph_i)
@@ -363,3 +364,8 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graphdb_feature_write_and_read(self):
         graphdb.test.test_graphdb_feature_write_and_read()
+        
+    def test_db_keys_factories(self):
+        k = graphdb.make_list_key(1,2)
+        self.assertEqual((1,2), graphdb.view_list_key(k))
+
