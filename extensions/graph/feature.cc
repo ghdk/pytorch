@@ -11,6 +11,8 @@ using namespace extensions;
 #include "feature.h"
 #include "../graphdb/db.h"
 #include "../graphdb/schema.h"
+#include "../graphdb/envpool.h"
+#include "../graphdb/transaction.h"
 #include "../graphdb/graphdb.h"
 #include "storage.h"
 #include "graph.h"

@@ -224,11 +224,9 @@ public:
 
     bool vertex(feature::index_t index)
     {
-        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
-
         bool ret = false;
 
-        ret = vertex_impl(session.vtx_set_, index);
+        ret = vertex_impl(parent_.vtx_set_, index);
         return ret;
     }
     feature::index_t vertex(feature::index_t index, bool truth)
@@ -344,8 +342,6 @@ public:
     }
     bool edge(feature::index_t i, feature::index_t j)
     {
-        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
-
         int rc = 0;
         bool ret = false;
 
@@ -354,7 +350,7 @@ public:
 
             adj_mtx_key_t key = {vtx_set_key_.graph(), i};
             iter_t iter = {adj_mtx_iter_.head(), tail};
-            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(session.adj_mtx_, key, iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_)), rc, key, iter);
+            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(parent_.adj_mtx_, key, iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_)), rc, key, iter);
 
             ret = bitarray::get(adj_mtx_page_, vtx);
         }
@@ -390,13 +386,11 @@ END:
 
     void vertices(vertices_visitor_t& visitor, size_t start, size_t stop, size_t step)
     {
-        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
-
         feature::index_t slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
         extensions::graphdb::schema::list_key_t iter = {0,0};
 
         size_t sz = 0;
-        extensions::graphdb::feature::visit(session.vtx_set_, vtx_set_key_,
+        extensions::graphdb::feature::visit(parent_.vtx_set_, vtx_set_key_,
                                             [&](auto key, size_t size)
                                             {
                                                 iter = key;
@@ -410,7 +404,7 @@ END:
             auto [tail, cell, map] = extensions::graphdb::bitarray::map_vtx_to_page(start);
             iter.tail() = tail;
             size_t v = map;
-            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(session.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
+            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(parent_.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
                 break;
             if(bitarray::get(vtx_set_page_, v))
                 visitor(start);
@@ -423,14 +417,12 @@ END:
     }
     void edges(edges_visitor_t& visitor, size_t start, size_t stop, size_t step)  // start,stop,step refer to a flattened adj mtx
     {
-        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
-
         extensions::graphdb::schema::list_key_t vtx_set_iter = {0,0};
         extensions::graphdb::schema::graph_adj_mtx_key_t adj_mtx_key = {vtx_set_key_.graph(),0};
         extensions::graphdb::schema::list_key_t adj_mtx_iter = {0,0};
 
         size_t sz = 0;
-        extensions::graphdb::feature::visit(session.vtx_set_, vtx_set_key_,
+        extensions::graphdb::feature::visit(parent_.vtx_set_, vtx_set_key_,
                                             [&](auto key, size_t size)
                                             {
                                                 vtx_set_iter = key;
@@ -448,14 +440,14 @@ END:
             auto [tailE, cellE, mapE] = extensions::graphdb::bitarray::map_vtx_to_page(e);
 
             vtx_set_iter.tail() = tailV;
-            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(session.vtx_set_, vtx_set_key_, vtx_set_iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
+            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(parent_.vtx_set_, vtx_set_key_, vtx_set_iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
                 break;
             if(!bitarray::get(vtx_set_page_, mapV)) goto CONTINUE;
 
             adj_mtx_key.vertex() = v;
             adj_mtx_iter.tail() = tailE;
 
-            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(session.adj_mtx_, adj_mtx_key, adj_mtx_iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_))
+            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(parent_.adj_mtx_, adj_mtx_key, adj_mtx_iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_))
                 break;
             if(bitarray::get(adj_mtx_page_, mapE))
                 visitor(v,e);
