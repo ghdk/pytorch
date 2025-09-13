@@ -133,7 +133,8 @@ constexpr std::array SCHEMA = {T_("VF"),
                                T_("EF"),
                                T_("GF"),
                                T_("AM"),
-                               T_("VS")};
+                               T_("VS"),
+                               (const char*)nullptr};  // the unnamed DB
 
 constexpr size_t H(const size_t n)
 {
@@ -161,6 +162,7 @@ constexpr size_t ADJACENCY_MATRIX_L = L(ADJACENCY_MATRIX);
 constexpr size_t VERTEX_SET         = 12;
 constexpr size_t VERTEX_SET_H       = H(VERTEX_SET);
 constexpr size_t VERTEX_SET_L       = L(VERTEX_SET);
+constexpr size_t UNNAMED            = 15;
 
 struct DatabaseSet
 {
