@@ -17,7 +17,8 @@ from graph import graph
 class Test(unittest.TestCase):
     
     def setUp(self):
-        self._dir = tempfile.mkdtemp(dir="./")
+        self._top = os.getcwd()
+        self._dir = tempfile.mkdtemp(dir=self._top)
         os.chdir(self._dir)
         
     def rm_test_dir(f):
@@ -25,7 +26,7 @@ class Test(unittest.TestCase):
             try: f(self)
             except Exception as e: traceback.print_exception(e, file=sys.stderr)
             else: shutil.rmtree(self._dir)  # leave behind if there was an assert
-            finally: os.chdir('..')
+            finally: os.chdir(self._top)
         return impl
 
     @rm_test_dir
