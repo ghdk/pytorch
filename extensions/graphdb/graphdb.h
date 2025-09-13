@@ -384,17 +384,56 @@ void remove(graphdb::Database const& parent, K& node)
 namespace hash  // Transactions that manage the hash DBs.
 {
 
+/**
+ * We hash the values through mdb_view, as python needs to pass py::bytes,
+ * so we need to have a uniform hash value for all types.
+ */
+template<typename V>
+size_t make_hash(V const& data)
+{
+    size_t ret = 0;
+    if constexpr(std::is_same_v<V, torch::Tensor>)
+    {
+        torch::Tensor tensor = data;
+        if(torch::kFloat == tensor.dtype())
+        {
+            mdb_view<float> data_v(tensor.data_ptr<float>(), tensor.numel());
+            ret = std::hash<mdb_view<float>>{}(data_v);
+        }
+        else if(torch::kUInt8 == tensor.dtype())
+        {
+            mdb_view<uint8_t> data_v(tensor.data_ptr<uint8_t>(), tensor.numel());
+            ret = std::hash<mdb_view<uint8_t>>{}(data_v);
+        }
+        else
+            assertm(false, tensor.dtype());
+    }
+    else if constexpr(extensions::is_contiguous<V>::value)
+    {
+        mdb_view<typename V::value_type> data_v(data.data(), data.size());
+        ret = std::hash<mdb_view<typename V::value_type>>{}(data_v);
+    }
+    else if constexpr(std::is_fundamental_v<V>)
+    {
+        mdb_view<V> data_v(&data, 1);
+        ret = std::hash<mdb_view<V>>{}(data_v);
+    }
+    else
+        static_assert(extensions::false_always<V>::value);
+    return ret;
+}
+
 template<typename K, typename V, typename = schema::is_list_key_t<K>, typename = schema::is_key_t<V>>
-void write(graphdb::Database const& parent, graphdb::mdb_view<K> hash, graphdb::mdb_view<V> value)
+void write(schema::DatabaseSet const& parent, graphdb::mdb_view<K> hash, graphdb::mdb_view<V> value)
 {
     assertm(0 != hash.begin()->head(), hash.begin()->head());
     assertm(0 == hash.begin()->tail(), hash.begin()->tail());
 
-    list::expand(parent, hash, value);
+    list::expand(parent.hash_, hash, value);
 }
 
 template<typename K, typename V>
-void write(graphdb::Database const& parent, K& hash, V& value)
+void write(schema::DatabaseSet const& parent, K& hash, V& value)
 {
     graphdb::mdb_view<K> hash_v(&hash, 1);
     graphdb::mdb_view<V> value_v(&value, 1);
@@ -405,31 +444,19 @@ template<typename K, typename = schema::is_key_t<K>>
 using visitor_t = std::function<int(K)>;
 
 template<typename V, typename K, typename = schema::is_key_t<K>>
-int visit(graphdb::Database const& parent, V& value, visitor_t<K> visitor)
+int visit(schema::DatabaseSet const& parent, V& value, visitor_t<K> visitor)
 {
     int rc = MDB_SUCCESS;
 
     graphdb::schema::list_key_t hash = {0,0};
-    {
-        if constexpr(extensions::is_contiguous<V>::value)
-        {
-            std::string_view v{reinterpret_cast<const char*>(value.data()), value.size()};
-            hash = {std::hash<std::string_view>{}(v), 0};
-        }
-        else if constexpr(std::is_fundamental_v<V>)
-        {
-            hash = {std::hash<V>{}(value), 0};
-        }
-        else
-            static_assert(extensions::false_always<K,V>::value);
-    }
+    hash.head() = make_hash(value);
 
     K key;
 
     for(size_t i = hash.tail(); i < schema::LIST_TAIL_MAX; i++)
     {
         hash.tail() = i;
-        rc = parent.get(hash, key);
+        rc = parent.hash_.get(hash, key);
         if(MDB_SUCCESS != rc) break;
         rc = visitor(key);
         if(MDB_SUCCESS == rc) break;
@@ -473,19 +500,7 @@ void write(schema::DatabaseSet const& parent, K& key, V& value)
     int rc = 0;
 
     schema::list_key_t hash = {0,0};
-    {
-        if constexpr(extensions::is_contiguous<V>::value)
-        {
-            std::string_view v{reinterpret_cast<const char*>(value.data()), value.size()};
-            hash = {std::hash<std::string_view>{}(v), 0};
-        }
-        else if constexpr(std::is_fundamental_v<V>)
-        {
-            hash = {std::hash<std::remove_cv_t<V>>{}(value), 0};
-        }
-        else
-            static_assert(extensions::false_always<K,V>::value);
-    }
+    hash.head() = hash::make_hash(value);
 
     schema::list_key_t head;
     rc = parent.main_.get(key, head);  // get head of list
@@ -496,7 +511,7 @@ void write(schema::DatabaseSet const& parent, K& key, V& value)
         assertm(MDB_SUCCESS == (rc = parent.main_.put(key, head, flags::put::DEFAULT)), rc);
     }
     extensions::graphdb::list::write(parent.list_, head, value);
-    extensions::graphdb::hash::write(parent.hash_, hash, key);
+    extensions::graphdb::hash::write(parent, hash, key);
 }
 
 }  // namespace feature
