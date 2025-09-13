@@ -52,7 +52,7 @@ public:  // copy/move semantics
         if(std::get<0>(range_) != std::get<1>(range_) && !func_(*std::get<0>(range_)))
             SeekNext();
     }
-    FilteredIterator(FilteredIterator const& other) = delete;
+    FilteredIterator(FilteredIterator const& other) = default;
     FilteredIterator(FilteredIterator&& other) = default;
     FilteredIterator& operator=(FilteredIterator const& other) = delete;
     FilteredIterator& operator=(FilteredIterator&& other) = delete;
