@@ -1,11 +1,15 @@
 import shutil
+import os
 import platform
 import sys
+import subprocess
 from pathlib import Path
+from sysconfig import get_paths
 from setuptools import setup, Extension, Command
 from torch.utils import cpp_extension
 
 IS_LINUX = 'Linux' in platform.platform()
+EXT_USE_LMDB = os.environ.get("EXT_USE_LMDB")
 
 class clean(Command):
     user_options = []
@@ -65,7 +69,34 @@ def buildlib():
             ret = arg.split('=')[1]
     return ret
 
+def gsl():
+    path = os.getcwd() + '/GSL'
+    if not os.path.isdir(path):
+        proc = subprocess.run(['git', 'clone', 'https://github.com/microsoft/GSL.git'],
+                              check=True)
+    if os.path.isdir(path):
+        proc = subprocess.run(['git', 'branch', '--show-current'],
+                              stdout = subprocess.PIPE,
+                              cwd = path,
+                              check=True)
+        current = proc.stdout.decode('ascii').strip()
+        tag = 'v4.0.0'
+        branch = tag.replace('v','b')
+        if branch != current:
+            proc = subprocess.run(['git', 'checkout', '-f', '-b', branch, tag],
+                                  cwd = path,
+                                  check=True)
+    return ['-I' + path + '/include']
+
+lmdb_conf_flags = ([f'-I{EXT_USE_LMDB}/include'],
+                   [f'{EXT_USE_LMDB}/lib'],
+                   [f'-L{EXT_USE_LMDB}/lib', '-llmdb'],
+                   None)
+
+gsl_conf_flags = gsl()
+
 extra_cpp_flags = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
+extra_cpp_flags += gsl_conf_flags
 extra_ld_flags = []
 
 setup(name='extensions',
@@ -123,6 +154,11 @@ setup(name='extensions',
                                               extra_compile_args=extra_cpp_flags,
                                               extra_link_args= extra_ld_flags
                                                              + (['-l:bitarray.so'] if IS_LINUX else [])),
+                   cpp_extension.CppExtension('graphdb.graphdb',
+                                              sources=['graphdb/graphdb.cc'],
+                                              runtime_library_dirs = [] + lmdb_conf_flags[1],
+                                              extra_compile_args=extra_cpp_flags + lmdb_conf_flags[0],
+                                              extra_link_args= extra_ld_flags + lmdb_conf_flags[2]),
                    cpp_extension.CppExtension('threadpool.threadpool',
                                               sources=['threadpool/threadpool.cc'],
                                               extra_compile_args=extra_cpp_flags,

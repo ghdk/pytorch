@@ -28,7 +28,7 @@ public:  // copy/move semantics
     explicit ChildrenTraversal(Mesh::mesh_ptr mesh)
         : mesh_{mesh}, state_{mesh}
     {
-        assertm(nullptr != mesh);
+        assert(nullptr != mesh);
     }
     ChildrenTraversal(ChildrenTraversal const& other) = delete;
     ChildrenTraversal(ChildrenTraversal&& other) = delete;
