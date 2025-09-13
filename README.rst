@@ -13,7 +13,7 @@ python::
 build::
 
     git submodule sync
-    git submodule update --init --recursive --jobs 0
+    git submodule update --init --recursive --jobs 11
     MACOSX_DEPLOYMENT_TARGET=12.4 CC=clang CXX=clang++  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0  python setup.py install
                                                                                                                                                                                                          build -j11 install test clean
 
