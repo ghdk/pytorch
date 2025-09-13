@@ -60,7 +60,7 @@ bool assertlog(const Args& ...args)
     {
         int status = 0;
         std::unique_ptr<char, decltype(::free)*> ret{abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status), ::free};
-        return {*ret};
+        return 0 == status ? ret.get() : name;
     }
 
 #ifdef __cpp_lib_hardware_interference_size

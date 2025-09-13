@@ -12,7 +12,6 @@ based on the `2.3.1` release of PyTorch.
 - [GraphDB](#graphdb)
 - [Iterators](#iterators)
 - [LLVM plugin](#llvm-plugin)
-- [Mesh](#mesh)
 - [Theory](#theory)
 - [Threadpool](#threadpool)
 - [Build](#build)
