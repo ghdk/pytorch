@@ -9,9 +9,9 @@ class mdb_view
 {
 public:
     using handle_type = MDB_val;
-    using value_type = T;
-    using const_iterator = T const*;
-    using iterator = T*;
+    using value_type = std::remove_cv_t<T>;
+    using const_iterator = value_type const*;
+    using iterator = value_type*;
 
 public:
 
@@ -258,6 +258,7 @@ public:
 
         if constexpr(std::is_same_v<V, torch::Tensor>)
         {
+            assert(data.is_contiguous());
             torch::Tensor tensor = data;
             if(torch::kFloat == tensor.dtype())
             {
@@ -302,6 +303,7 @@ public:
 
         if constexpr(std::is_same_v<V, torch::Tensor>)
         {
+            assert(data.is_contiguous());
             auto lambda = [&](auto view)
             {
                 // NB. Quoting "Exposes the given data as a Tensor without taking ownership of the original data."
