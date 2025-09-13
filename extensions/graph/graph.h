@@ -17,10 +17,13 @@ public:
 
     operator std::string();
 
-    iter::GeneratedEnumerable<feature::index_t> vertices();
-    iter::GeneratedEnumerable<std::pair<feature::index_t, feature::index_t>> edges();
-    iter::GeneratedEnumerable<feature::index_t> vertices() const;
-    iter::GeneratedEnumerable<std::pair<feature::index_t, feature::index_t>> edges() const;
+    using vertices_visitor_t = storage::vertices_visitor_t;
+    void vertices(vertices_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1);
+    void vertices(vertices_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1) const;
+
+    using edges_visitor_t = storage::edges_visitor_t;
+    void edges(edges_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1);
+    void edges(edges_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1) const;
 
     bool vertex(feature::index_t i);
     feature::index_t vertex(feature::index_t index, bool truth);
@@ -35,10 +38,10 @@ public:
         return ret;
     }
 
-    static Graph make_graph(graphdb::Environment& env, graph::feature::index_t graph)
+    static Graph make_graph(graphdb::schema::TransactionNode& parent, graph::feature::index_t graph)
     {
         Graph ret;
-        ret.storage_ = std::make_shared<storage::storage_t>(storage::Database(env, graph));
+        ret.storage_ = std::make_shared<storage::storage_t>(storage::Database(parent, graph));
         return ret;
     }
 
@@ -64,8 +67,8 @@ public:
         using T = typename PY::type;
         c.def("__repr__", +[](ptr_t<Graph> self){return (std::string)*self;});
         c.def("__str__", +[](ptr_t<Graph> self){return (std::string)*self;});
-        c.def("vertices", static_cast<iter::GeneratedEnumerable<feature::index_t>(T::*)(void)>(&T::vertices));
-        c.def("edges",    static_cast<iter::GeneratedEnumerable<std::pair<feature::index_t, feature::index_t>>(T::*)(void)>(&T::edges));
+        c.def("vertices", static_cast<void(T::*)(typename T::vertices_visitor_t, size_t, size_t, size_t)>(&T::vertices));
+        c.def("edges",    static_cast<void(T::*)(typename T::edges_visitor_t, size_t, size_t, size_t)>(&T::edges));
         c.def("is_vertex", static_cast<bool(T::*)(feature::index_t)>(&T::vertex));
         c.def("vertex", static_cast<feature::index_t(T::*)(feature::index_t,bool)>(&T::vertex));
         c.def("is_edge", static_cast<bool(T::*)(feature::index_t,feature::index_t)>(&T::edge));

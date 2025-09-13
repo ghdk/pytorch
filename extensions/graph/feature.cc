@@ -18,20 +18,19 @@ using namespace extensions;
 size_t extensions::graph::feature::order(const Graph graph)
 {
     size_t ret = 0;
-    for(auto v : graph.vertices())
-        ret += 1;
+    graph.vertices([&](feature::index_t v){ ret += 1; });
     return ret;
 }
 
 size_t extensions::graph::feature::size(const Graph graph, bool directed)
 {
     size_t ret = 0;
-    for(auto e : graph.edges())
-    {
-        // If the graph is not directed don't count the edges twice.
-        if(!directed && std::get<0>(e) > std::get<1>(e)) continue;
-        ret += 1;
-    }
+    graph.edges([&](feature::index_t e1, feature::index_t e2)
+                {
+                    // If the graph is not directed don't count the edges twice.
+                    if(!directed && e1 > e2) return;
+                    ret += 1;
+                });
     return ret;
 }
 

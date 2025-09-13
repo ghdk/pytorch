@@ -113,7 +113,9 @@
  *
  * For each feature table `VF`, `EF`, `GF`, there is a corresponding hash
  * table `HVF`, `HEF`, `HGF` and a linked list table `LVF`, `LEF`, `LGF`.
- * Linked list tables point to a page of data. Hash tables and linked list
+ * Feature tables hold keys pointing to linked list heads. Linked list tables
+ * hold the data, each key pointing to a page. This redirection allows us
+ * to have multiple references to the same data. Hash tables and linked list
  * tables form linked lists, the only difference being that on hash tables
  * the head of the list is <HASH,0> while on linked lists is <RANDOM,0>.
  *
@@ -124,6 +126,34 @@
 
 namespace extensions { namespace graphdb
 {
+
+namespace flags
+{
+    namespace db
+    {
+        constexpr unsigned int WRITE = MDB_CREATE;
+        constexpr unsigned int READ  = 0;
+    }
+
+    namespace txn
+    {
+        constexpr unsigned int WRITE = 0x0;
+        constexpr unsigned int READ  = MDB_RDONLY;
+        constexpr unsigned int NESTED_RW = 0x0 | 0x80000000;  // only write transactions can be nested
+        constexpr unsigned int NESTED_RO = 0x0 | 0x40000000;
+    }
+
+    namespace env
+    {
+        constexpr unsigned int DEFAULT = MDB_NOSUBDIR;
+    }
+
+    namespace put
+    {
+        constexpr unsigned int DEFAULT = 0;
+        constexpr unsigned int NOOVERWRITE = MDB_NOOVERWRITE;
+    }
+}  // namespace flags
 
 namespace schema
 {
@@ -191,6 +221,79 @@ public:
     DatabaseSet& operator=(DatabaseSet&&) = delete;
 };
 
+/**
+ * It is the responsibility of the caller to manage the database nodes, not the
+ * callee. Imagine a caller that has a root rw database node. The caller wants
+ * to call a function to read only a feature. In this case the caller prepares
+ * a new child, ro, database node and passes to the callee the database set. The
+ * callee does not create a new transaction, instead uses the transaction and
+ * database from the database set. Hence the transactions are always at the
+ * database node level.
+ */
+struct TransactionNode
+{
+public:
+    graphdb::Environment const& env_;
+    graphdb::Transaction txn_;
+
+public:
+    DatabaseSet vertex_;
+    DatabaseSet edge_;
+    DatabaseSet graph_;
+    DatabaseSet adj_mtx_;
+    DatabaseSet vtx_set_;
+
+public:
+    TransactionNode(graphdb::Environment const& env, unsigned int flags)  // create a root node
+    : env_{env}
+    , txn_{env_, flags}
+    , vertex_(txn_,  VERTEX_FEATURE,   extensions::graphdb::flags::db::WRITE)
+    , edge_(txn_,    EDGE_FEATURE,     extensions::graphdb::flags::db::WRITE)
+    , graph_(txn_,   GRAPH_FEATURE,    extensions::graphdb::flags::db::WRITE)
+    , adj_mtx_(txn_, ADJACENCY_MATRIX, extensions::graphdb::flags::db::WRITE)
+    , vtx_set_(txn_, VERTEX_SET,       extensions::graphdb::flags::db::WRITE)
+    , flags_{flags}
+    {}
+
+    TransactionNode(TransactionNode const& parent, unsigned int flags)  // create a child node
+    : env_{parent.env_}
+    , txn_{parent.env_, parent.txn_, flags}
+    , vertex_(txn_,  parent.vertex_)
+    , edge_(txn_,    parent.edge_)
+    , graph_(txn_,   parent.graph_)
+    , adj_mtx_(txn_, parent.adj_mtx_)
+    , vtx_set_(txn_, parent.vtx_set_)
+    , flags_{flags}
+    {}
+
+    ~TransactionNode()
+    {
+        int rc;
+        switch(flags_)
+        {
+        case extensions::graphdb::flags::txn::WRITE:
+        case extensions::graphdb::flags::txn::NESTED_RW:
+            assertm(MDB_SUCCESS == (rc = txn_.commit()), rc);
+            break;
+        case extensions::graphdb::flags::txn::READ:
+        case extensions::graphdb::flags::txn::NESTED_RO:
+            assertm(MDB_SUCCESS == (rc = txn_.abort()), rc);
+            break;
+        default:
+            assertm(false, flags_);
+        }
+    }
+
+    TransactionNode() = delete;
+    TransactionNode(TransactionNode const&) = delete;
+    TransactionNode(TransactionNode&&) = delete;
+    TransactionNode& operator=(TransactionNode const&) = delete;
+    TransactionNode& operator=(TransactionNode&&) = delete;
+
+private:
+    unsigned int flags_;
+};
+
 template<typename K, size_t N=1, typename = std::enable_if_t<1 <= N && N <= 3>>
 struct key_t
 {
@@ -205,21 +308,25 @@ private:
 public:
 
     constexpr size_t size() { return data_.size(); }
+    constexpr size_t size() const { return const_cast<key_t*>(this)->size(); }
 
     bool operator==(key_t const& other) noexcept
     {
         return data_ == other.data_;
     }
+    bool operator==(key_t const& other) const noexcept { return const_cast<key_t*>(this)->operator==(other); }
 
     bool operator!=(key_t const& other) noexcept
     {
         return !(*this == other);
     }
+    bool operator!=(key_t const& other) const noexcept { return const_cast<key_t*>(this)->operator!=(other); }
 
     value_type* data() noexcept
     {
         return data_.data();
     }
+    const value_type* data() const noexcept { return const_cast<key_t*>(this)->data(); }
 
     value_type& graph(){ return data_[0]; }
 
@@ -248,12 +355,16 @@ public:  // linked list
     {
         return data_[0];
     }
+    template <size_t M = N, typename = std::enable_if_t<M == 2>>
+    value_type const& head() const { return const_cast<key_t*>(this)->head(); }
 
     template <size_t M = N, typename = std::enable_if_t<M == 2>>
     value_type& tail()
     {
         return data_[1];
     }
+    template <size_t M = N, typename = std::enable_if_t<M == 2>>
+    value_type const& tail() const { return const_cast<key_t*>(this)->tail(); }
 
 public:
     key_t() = default;
@@ -272,32 +383,6 @@ public:
             data_[index] = i;
             index++;
         }
-    }
-
-public:  // const
-    constexpr size_t size() const
-    {
-        return const_cast<key_t*>(this)->size();
-    }
-    const value_type* data() const noexcept
-    {
-        return const_cast<key_t*>(this)->data();
-    }
-    bool operator==(key_t const& other) const noexcept
-    {
-        return const_cast<key_t*>(this)->operator==(other);
-    }
-    bool operator!=(key_t const& other) const noexcept
-    {
-        return const_cast<key_t*>(this)->operator!=(other);
-    }
-    value_type const& head() const
-    {
-        return const_cast<key_t*>(this)->head();
-    }
-    value_type const& tail() const
-    {
-        return const_cast<key_t*>(this)->tail();
     }
 };
 
@@ -347,34 +432,16 @@ using is_feature_key_t = std::enable_if_t<std::is_constructible_v<std::variant<v
                                                                                graph_feature_key_t>,
                                                                   K>, void>;
 
-}  // namespace schema
-
-namespace flags
+template<typename K, typename = is_key_t<K>>
+std::ostream& operator<<(std::ostream &strm, K &key)
 {
-    namespace db
-    {
-        constexpr unsigned int WRITE = MDB_CREATE;
-        constexpr unsigned int READ  = 0;
-    }
+    std::ostringstream out;
+    for(size_t i = 0; i < key.size(); i++)
+        out << (i ? "," : "") << key.data()[i];
+    return strm << out.str();
+}
 
-    namespace txn
-    {
-        constexpr unsigned int WRITE = 0;
-        constexpr unsigned int READ  = MDB_RDONLY;
-        constexpr unsigned int NESTED = WRITE;  // only write transactions can be nested
-    }
-
-    namespace env
-    {
-        constexpr unsigned int DEFAULT = MDB_NOSUBDIR;
-    }
-
-    namespace put
-    {
-        constexpr unsigned int DEFAULT = 0;
-        constexpr unsigned int NOOVERWRITE = MDB_NOOVERWRITE;
-    }
-}  // namespace flags
+}  // namespace schema
 
 }}  // namespace extensions::graphdb
 

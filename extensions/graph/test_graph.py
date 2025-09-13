@@ -19,16 +19,26 @@ class Test(unittest.TestCase):
     
     def test_init(self):
         g = G.make_graph()
-        self.assertEqual([], [v for v in g.vertices()])
-        self.assertEqual([], [e for e in g.edges()])
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([], received)
+        received = []
+        g.edges(lambda x,y : received.append((x,y)), 0,0,1)
+        self.assertEqual([], received)
         
     def test_vertex_add(self):
         g = G.make_graph()
-        self.assertEqual([], [v for v in g.vertices()])
-        self.assertEqual([], [e for e in g.edges()])
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([], received)
+        received = []
+        g.edges(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([], received)
         v = g.vertex(0, True)
         self.assertEqual(0, v)
-        self.assertEqual([0], [v for v in g.vertices()])
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([0], received)
         v = g.vertex(0, True)
         self.assertNotEqual(0, v)
 
@@ -38,7 +48,8 @@ class Test(unittest.TestCase):
         expected = []
         for i in range(0, total):
             expected.append(g.vertex(i, True))
-        received = [v for v in g.vertices()]
+        received = []
+        g.vertices(lambda n: received.append(n), 0,0,1)
         self.assertEqual(sorted(expected), sorted(received))
         # verify the values at the bounds
         self.assertEqual(0, sorted(received)[0])
@@ -50,19 +61,32 @@ class Test(unittest.TestCase):
         # v must be within the new page
         self.assertTrue(graphdb.PAGE_SIZE * B.CELL_SIZE <= v and v < 2 * graphdb.PAGE_SIZE * B.CELL_SIZE, v)
         # the graph must have been expanded by PAGE_SIZE
-        self.assertEqual(graphdb.PAGE_SIZE * B.CELL_SIZE + 1, len(list(g.vertices())))
-        self.assertEqual(2, len(list(g.edges())))        
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual(graphdb.PAGE_SIZE * B.CELL_SIZE + 1, len(received))
+        received  = []
+        g.edges(lambda x,y : received.append((x,y)), 0,0,1)
+        self.assertEqual(2, len(received))
         # the old region must have been copied
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
         self.assertEqual(0, sorted(received)[0])
-        self.assertEqual(graphdb.PAGE_SIZE * B.CELL_SIZE - 1, sorted(received)[-1])
+        self.assertLess(graphdb.PAGE_SIZE * B.CELL_SIZE - 1, sorted(received)[-1])
+        self.assertEqual(graphdb.PAGE_SIZE * B.CELL_SIZE - 1, sorted(received)[-2])
 
     def test_vertex_delete(self):
         g = G.make_graph()
-        self.assertEqual([], [v for v in g.vertices()])
-        self.assertEqual([], [e for e in g.edges()])
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([], received)
+        received = []
+        g.edges(lambda x,y: received.append((x,y)), 0,0,1)
+        self.assertEqual([], received)
         a = g.vertex(0, True)
         self.assertEqual(0, a)
-        self.assertEqual([0], [v for v in g.vertices()])
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([0], received)
         b = g.vertex(0, True)
         self.assertNotEqual(0, b)
         self.assertNotEqual(a, b)
@@ -118,14 +142,20 @@ class Test(unittest.TestCase):
         
     def test_graph_iter_vertex(self):
         g = G.make_graph()
-        self.assertEqual([], [v for v in g.vertices()])
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([], received)
         g.vertex(0, True)
         g.vertex(10, True)
-        self.assertEqual([0, 10], [v for v in g.vertices()])
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([0, 10], received)
     
     def test_graph_iter_edge(self):
         g = G.make_graph()
-        self.assertEqual([], [v for v in g.edges()])
+        received = []
+        g.edges(lambda x,y : received.append((x,y)), 0,0,1)
+        self.assertEqual([], received)
         g.vertex(0, True)
         g.vertex(10, True)
         g.edge(0,10,True)
@@ -136,4 +166,6 @@ class Test(unittest.TestCase):
         self.assertTrue(g.is_edge(0,10))
         self.assertTrue(g.is_edge(10,0))
         
-        self.assertEqual([(0,10), (10,0)], [v for v in g.edges()])
+        received = []
+        g.edges(lambda x,y : received.append((x,y)), 0,0,1)
+        self.assertEqual([(0,10), (10,0)], received)

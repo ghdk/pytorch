@@ -62,6 +62,10 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graphdb_hash_remove(self):
         graphdb.test.test_graphdb_hash_remove()
+        
+    @rm_test_dir
+    def test_graphdb_hash_visit(self):
+        graphdb.test.test_graphdb_hash_visit()
 
     @rm_test_dir
     def test_graphdb_find_head(self):
@@ -70,6 +74,14 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graphdb_cursor_next(self):
         graphdb.test.test_graphdb_cursor_next()
+
+    @rm_test_dir
+    def test_graphdb_transaction_node(self):
+        graphdb.test.test_graphdb_transaction_node()
+
+    @rm_test_dir
+    def test_graphdb_transaction_api(self):
+        graphdb.test.test_graphdb_transaction_api()        
 
     @classmethod
     def impl_graph_make_graph_db(cls, filename, graph_i):
@@ -100,7 +112,10 @@ class Test(unittest.TestCase):
     def test_graph_make_graph_db(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
+        def sub():
+            txn = graphdb.make_transaction_node(filename)
+            g = graph.make_graph_db(txn, graph_i)
+        sub()
         ctx = mp.get_context('spawn')
         p = ctx.Process(target=self.__class__.impl_graph_make_graph_db, args=(filename, graph_i))
         p.start()
@@ -127,9 +142,12 @@ class Test(unittest.TestCase):
     def test_graph_vertex_add(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
-        v = g.vertex(0,True)
-        v = g.vertex(graphdb.PAGE_SIZE * bitarray.CELL_SIZE - 1,True)  # the last vertex of the page
+        def sub():
+            txn = graphdb.make_transaction_node(filename)
+            g = graph.make_graph_db(txn, graph_i)
+            v = g.vertex(0,True)
+            v = g.vertex(graphdb.PAGE_SIZE * bitarray.CELL_SIZE - 1,True)  # the last vertex of the page
+        sub()
         ctx = mp.get_context('spawn')
         p = ctx.Process(target=self.__class__.impl_graph_vertex_add, args=(filename, graph_i))
         p.start()
@@ -192,10 +210,13 @@ class Test(unittest.TestCase):
     def test_graph_vertex_expand(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
-        for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
-            v = g.vertex(i,True)
-        v = g.vertex(0,True)  # force expansion
+        def sub():
+            txn = graphdb.make_transaction_node(filename)
+            g = graph.make_graph_db(txn, graph_i)
+            for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
+                v = g.vertex(i,True)
+            v = g.vertex(0,True)  # force expansion
+        sub()
         ctx = mp.get_context('spawn')
         p = ctx.Process(target=self.__class__.impl_graph_vertex_expand, args=(filename, graph_i))
         p.start()
@@ -253,15 +274,20 @@ class Test(unittest.TestCase):
     def test_graph_vertex_delete(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
-        for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
-            v = g.vertex(i,True)
-        indexes = [0,
-                   graphdb.PAGE_SIZE * bitarray.CELL_SIZE // 2,
-                   graphdb.PAGE_SIZE * bitarray.CELL_SIZE - 1]
-        v = g.vertex(indexes[0],False)
-        v = g.vertex(indexes[1], False)
-        v = g.vertex(indexes[2], False)
+        indexes = []
+        def sub():
+            nonlocal indexes
+            txn = graphdb.make_transaction_node(filename)
+            g = graph.make_graph_db(txn, graph_i)
+            for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
+                v = g.vertex(i,True)
+            indexes = [0,
+                       graphdb.PAGE_SIZE * bitarray.CELL_SIZE // 2,
+                       graphdb.PAGE_SIZE * bitarray.CELL_SIZE - 1]
+            v = g.vertex(indexes[0],False)
+            v = g.vertex(indexes[1], False)
+            v = g.vertex(indexes[2], False)
+        sub()
         ctx = mp.get_context('spawn')
         p = ctx.Process(target=self.__class__.impl_graph_vertex_delete, args=(filename, graph_i, indexes))
         p.start()
@@ -272,7 +298,8 @@ class Test(unittest.TestCase):
     def test_graph_is_vertex(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
+        txn = graphdb.make_transaction_node(filename)
+        g = graph.make_graph_db(txn, graph_i)
         expected = []
         for i in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE, 2):
             expected.append(g.vertex(i,True))
@@ -285,7 +312,8 @@ class Test(unittest.TestCase):
     def test_graph_is_edge(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
+        txn = graphdb.make_transaction_node(filename)
+        g = graph.make_graph_db(txn, graph_i)
         expected = []
         for i in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE // 1000, 2):
             r = random.randint(0, i)
@@ -303,23 +331,35 @@ class Test(unittest.TestCase):
     def test_graph_iter_vertex(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
-        self.assertEqual([], [v for v in g.vertices()])
+        txn = graphdb.make_transaction_node(filename)
+        g = graph.make_graph_db(txn, graph_i)
+        received = []
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual([], received)
         expected = [g.vertex(0,True) for _ in range(10)]
-        self.assertEqual(sorted(expected), sorted([v for v in g.vertices()]))
+        g.vertices(lambda n : received.append(n), 0,0,1)
+        self.assertEqual(sorted(expected), sorted(received))
 
     @rm_test_dir
     def test_graph_iter_edge(self):
         filename = f"./test.{getframeinfo(currentframe()).lineno}.db"
         graph_i = 0xACE
-        g = graph.make_graph_db(filename, graph_i)
-        self.assertEqual([], [e for e in g.edges()])
+        txn = graphdb.make_transaction_node(filename)
+        g = graph.make_graph_db(txn, graph_i)
+        received = []
+        g.edges(lambda x,y: received.append((x,y)), 0,0,1)
+        self.assertEqual([], received)
         expected = []
         for i in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE, 2):
             r = random.randint(0, i)
-            expected.append((i,r))
-            g.vertex(i,True)
-            g.vertex(r,True)
-            g.edge(i,r,True)
-        received = [e for e in g.edges()]
+            x = g.vertex(i,True)
+            y = g.vertex(r,True)
+            expected.append((x,y))
+            g.edge(x,y,True)
+        received = []
+        g.edges(lambda x,y: received.append((x,y)), 0,0,1)
         self.assertEqual(sorted(expected), sorted(received))
+
+    @rm_test_dir
+    def test_graphdb_feature_write_and_read(self):
+        graphdb.test.test_graphdb_feature_write_and_read()

@@ -30,13 +30,10 @@ void find_head(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
     typename K::value_type step = 0;
     schema::meta_page_t N = 1;
 
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
-
     mdb_view<schema::meta_key_t> meta_k(&schema::META_KEY_PAGE, 1);
     mdb_view<schema::meta_page_t> meta_v;
 
-    rc = db.get(meta_k, meta_v);
+    rc = parent.get(meta_k, meta_v);
     assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
     if(MDB_SUCCESS == rc)
         N = *(meta_v.begin());
@@ -50,7 +47,7 @@ void find_head(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
     std::uniform_int_distribution<typename K::value_type> d(0, max);
 
     {
-        Cursor cursor(txn, db);
+        Cursor cursor(parent.txn_, parent);
 
         while(true)
         {
@@ -81,8 +78,7 @@ void find_head(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
     }
 
     meta_v = mdb_view<schema::meta_page_t>(&N, 1);
-    assertm(MDB_SUCCESS == (rc = db.put(meta_k, meta_v, flags::put::DEFAULT)), rc);
-    assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+    assertm(MDB_SUCCESS == (rc = parent.put(meta_k, meta_v, flags::put::DEFAULT)), rc);
 
     *(hint.begin()) = {ret + step, 0};
 }
@@ -102,14 +98,12 @@ template<typename K, typename = schema::is_list_key_t<K>>
 void size(graphdb::Database const& parent, graphdb::mdb_view<K> iter, mdb_view<size_t> sz)
 {
     int rc = 0;
+    *(sz.begin()) = 0;
 
     assertm(0 != iter.begin()->head(), iter.begin()->head());
 
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
-
     {
-        Cursor cursor(txn, db);
+        Cursor cursor(parent.txn_, parent);
         mdb_view<K> iter_c;
         mdb_view<uint8_t> iter_v;
 
@@ -124,7 +118,6 @@ void size(graphdb::Database const& parent, graphdb::mdb_view<K> iter, mdb_view<s
         }
     }
 
-    assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
 }
 
 template<typename K>
@@ -133,6 +126,36 @@ void size(graphdb::Database const& parent, K& iter, size_t& sz)
     graphdb::mdb_view<K> iter_v(&iter, 1);
     graphdb::mdb_view<size_t> sz_v(&sz, 1);
     size(parent, iter_v, sz_v);
+}
+
+/**
+ * Removes a linked list from the DB, starting at the given node.
+ */
+template<typename K, typename = schema::is_list_key_t<K>>
+void clear(graphdb::Database const& parent, graphdb::mdb_view<K> head)
+{
+    assertm(0 != head.begin()->head(), head.begin()->head());
+
+    int rc = 0;
+
+    K iter = *(head.begin());
+    mdb_view<K> iter_k(&iter, 1);
+
+    for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
+    {
+        iter.tail() = i;
+        rc = parent.remove(iter_k);
+        if(MDB_NOTFOUND == rc)
+            break;
+    }
+
+}
+
+template<typename K>
+void clear(graphdb::Database const& parent, K& head)
+{
+    mdb_view<K> head_v(&head, 1);
+    clear(parent, head_v);
 }
 
 /**
@@ -145,19 +168,13 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
 
     assertm(0 != head.begin()->head(), head.begin()->head());
     assertm(0 == head.begin()->tail(), head.begin()->tail());
-    // If instead you want to write a single page, use directly the Database.put
-    // method.
-    assertm(value.size() * sizeof(V) > extensions::page_size, value.size());
 
     int rc = 0;
-
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
 
     K iter = *(head.begin());
     mdb_view<K> iter_k(&iter, 1);
     mdb_view<V> iter_v;
-    size_t chunk = extensions::page_size / sizeof(V);
+    size_t chunk = extensions::page_size / sizeof(V);  // number of items in a page
 
     for(typename K::value_type i = 0; i < schema::LIST_TAIL_MAX; i++)
     {
@@ -165,10 +182,13 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
         iter.tail() = i;
         iter_v = mdb_view<V>(value.data()          + i * chunk,
                              std::min(value.size() - i * chunk, chunk));
-        assertm(MDB_SUCCESS == (rc = db.put(iter_k, iter_v, flags::put::DEFAULT)), rc);
+        assertm(MDB_SUCCESS == (rc = parent.put(iter_k, iter_v, flags::put::DEFAULT)), rc);
     }
 
-    assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+    // if we are overwriting an existing list, clear the remainder of the
+    // old list
+    iter.tail() += 1;
+    clear(parent, iter);
 
 }
 
@@ -193,6 +213,11 @@ void write(graphdb::Database const& parent, K& head, V& value)
         const graphdb::mdb_view<typename V::value_type> value_v(value.data(), value.size());
         write(parent, head_v, value_v);
     }
+    else if constexpr(std::is_fundamental_v<V>)
+    {
+        const graphdb::mdb_view<V> value_v(&value, 1);
+        write(parent, head_v, value_v);
+    }
     else
         static_assert(extensions::false_always<K,V>::value);
 }
@@ -213,11 +238,8 @@ void read(graphdb::Database const& parent, const graphdb::mdb_view<K> head, grap
 
     int rc = 0;
 
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
-
     {
-        graphdb::Cursor cursor(txn, db);
+        graphdb::Cursor cursor(parent.txn_, parent);
 
         K iter = *(head.begin());
         mdb_view<K> iter_k(&iter, 1);
@@ -237,7 +259,6 @@ void read(graphdb::Database const& parent, const graphdb::mdb_view<K> head, grap
         }
     }
 
-    assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
 }
 
 template<typename K, typename V>
@@ -248,6 +269,11 @@ void read(graphdb::Database const& parent, K& head, V& value)
     if constexpr(extensions::is_contiguous<V>::value)
     {
         graphdb::mdb_view<typename V::value_type> value_v(value.data(), value.size());
+        read(parent, head_v, value_v);
+    }
+    else if constexpr(std::is_fundamental_v<V>)
+    {
+        graphdb::mdb_view<V> value_v(&value, 1);
         read(parent, head_v, value_v);
     }
     else
@@ -265,11 +291,8 @@ void expand(graphdb::Database const& parent, graphdb::mdb_view<K> node, graphdb:
 
     int rc = 0;
 
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
-
     {
-        graphdb::Cursor cursor(txn, db);
+        graphdb::Cursor cursor(parent.txn_, parent);
 
         K iter = *(node.begin());
         mdb_view<K> iter_k(&iter, 1);
@@ -282,12 +305,11 @@ void expand(graphdb::Database const& parent, graphdb::mdb_view<K> node, graphdb:
             assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
             if(MDB_NOTFOUND == rc || iter_k.begin()->head() != node.begin()->head())
             {
-                assertm(MDB_SUCCESS == (rc = db.put(iter_k, value, flags::put::DEFAULT)), rc);
+                assertm(MDB_SUCCESS == (rc = parent.put(iter_k, value, flags::put::DEFAULT)), rc);
                 break;
             }
         }
     }
-    assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
 }
 
 template<typename K, typename V>
@@ -316,43 +338,6 @@ void expand(graphdb::Database const& parent, K& node, V& value)
 }
 
 /**
- * Removes a linked list from the DB.
- */
-template<typename K, typename = schema::is_list_key_t<K>>
-void clear(graphdb::Database const& parent, graphdb::mdb_view<K> head)
-{
-    assertm(0 != head.begin()->head(), head.begin()->head());
-    assertm(0 == head.begin()->tail(), head.begin()->tail());
-
-    int rc = 0;
-
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
-
-    K iter = *(head.begin());
-    mdb_view<K> iter_k(&iter, 1);
-
-    for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
-    {
-        iter.tail() = i;
-        rc = db.remove(iter_k);
-        if(iter.tail() == head.begin()->tail())
-            assertm(MDB_SUCCESS == rc ,rc);  // head must be in the DB.
-        if(MDB_NOTFOUND == rc)
-            break;
-    }
-
-    assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
-}
-
-template<typename K>
-void clear(graphdb::Database const& parent, K& head)
-{
-    mdb_view<K> head_v(&head, 1);
-    clear(parent, head_v);
-}
-
-/**
  * Removes one node from a linked list.
  * Shifts the nodes in the range (node, last] of a linked list, to the range
  * [node, last), ie. one step to the left.
@@ -364,9 +349,6 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
 
     int rc = 0;
 
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
-
     K iter = *(node.begin());
     mdb_view<K> iter_k(&iter, 1);
     mdb_view<uint8_t> iter_v;
@@ -374,7 +356,7 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
     for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
     {
         iter.tail() = i;
-        rc = db.get(iter_k, iter_v);
+        rc = parent.get(iter_k, iter_v);
         if(iter.tail() == node.begin()->tail())
         {
             assertm(MDB_SUCCESS == rc ,rc);  // key must be in the DB.
@@ -383,13 +365,11 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
         else if(MDB_NOTFOUND == rc)
             break;
         iter.tail() = i-1;  // replace the previous node
-        assertm(MDB_SUCCESS == (rc = db.put(iter_k, iter_v, flags::put::DEFAULT)), rc);
+        assertm(MDB_SUCCESS == (rc = parent.put(iter_k, iter_v, flags::put::DEFAULT)), rc);
 DELETE:
         iter.tail() = i;  // delete the current node
-        assertm(MDB_SUCCESS == (rc = db.remove(iter_k)), rc);
+        assertm(MDB_SUCCESS == (rc = parent.remove(iter_k)), rc);
     }
-
-    assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
 }
 
 template<typename K>
@@ -410,14 +390,7 @@ void write(graphdb::Database const& parent, graphdb::mdb_view<K> hash, graphdb::
     assertm(0 != hash.begin()->head(), hash.begin()->head());
     assertm(0 == hash.begin()->tail(), hash.begin()->tail());
 
-    int rc = 0;
-
-    Transaction txn(parent.txn_.env_, parent.txn_, flags::txn::NESTED);
-    Database db(txn, parent);
-
-    list::expand(db, hash, value);
-
-    assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+    list::expand(parent, hash, value);
 }
 
 template<typename K, typename V>
@@ -428,7 +401,157 @@ void write(graphdb::Database const& parent, K& hash, V& value)
     write(parent, hash_v, value_v);
 }
 
+template<typename K, typename = schema::is_key_t<K>>
+using visitor_t = std::function<int(K)>;
+
+template<typename V, typename K, typename = schema::is_key_t<K>>
+int visit(graphdb::Database const& parent, V& value, visitor_t<K> visitor)
+{
+    int rc = MDB_SUCCESS;
+
+    graphdb::schema::list_key_t hash = {0,0};
+    {
+        if constexpr(extensions::is_contiguous<V>::value)
+        {
+            std::string_view v{reinterpret_cast<const char*>(value.data()), value.size()};
+            hash = {std::hash<std::string_view>{}(v), 0};
+        }
+        else if constexpr(std::is_fundamental_v<V>)
+        {
+            hash = {std::hash<V>{}(value), 0};
+        }
+        else
+            static_assert(extensions::false_always<K,V>::value);
+    }
+
+    K key;
+
+    for(size_t i = hash.tail(); i < schema::LIST_TAIL_MAX; i++)
+    {
+        hash.tail() = i;
+        rc = parent.get(hash, key);
+        if(MDB_SUCCESS != rc) break;
+        rc = visitor(key);
+        if(MDB_SUCCESS == rc) break;
+    }
+
+    return rc;
+}
+
 }  // namespace hash
+
+namespace feature
+{
+
+/**
+ * A feature is read from the DB in two steps A) lookup, which gives us the
+ * head of the list and the size of the buffer, B) using the head of the list
+ * and the size of the buffer, we read the data from the DB.
+ */
+
+using visitor_t = std::function<int(schema::list_key_t, size_t)>;
+
+template <typename K>
+int visit(schema::DatabaseSet const& parent, K& key, visitor_t visitor)
+{
+    int rc = 0;
+    schema::list_key_t iter;
+    size_t size = 0;
+    rc = parent.main_.get(key, iter);
+    if(MDB_SUCCESS == rc)
+    {
+        extensions::graphdb::list::size(parent.list_, iter, size);
+        iter.tail() = 0;
+        rc = visitor(iter, size);
+    }
+    return rc;
+}
+
+template <typename K, typename V>
+void write(schema::DatabaseSet const& parent, K& key, V& value)
+{
+    int rc = 0;
+
+    schema::list_key_t hash = {0,0};
+    {
+        if constexpr(extensions::is_contiguous<V>::value)
+        {
+            std::string_view v{reinterpret_cast<const char*>(value.data()), value.size()};
+            hash = {std::hash<std::string_view>{}(v), 0};
+        }
+        else if constexpr(std::is_fundamental_v<V>)
+        {
+            hash = {std::hash<V>{}(value), 0};
+        }
+        else
+            static_assert(extensions::false_always<K,V>::value);
+    }
+
+    schema::list_key_t head;
+    rc = parent.main_.get(key, head);  // get head of list
+    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+    if(MDB_NOTFOUND == rc)
+    {
+        list::find_head(parent.list_, head);
+        assertm(MDB_SUCCESS == (rc = parent.main_.put(key, head, flags::put::DEFAULT)), rc);
+    }
+    extensions::graphdb::list::write(parent.list_, head, value);
+    extensions::graphdb::hash::write(parent.hash_, hash, key);
+}
+
+}  // namespace feature
+
+namespace bitarray  // Transactions that manage the bitmaps.
+{
+    static std::tuple<schema::list_key_t::value_type, schema::list_key_t::value_type, schema::list_key_t::value_type>
+    map_vtx_to_page(schema::graph_vtx_set_key_t::value_type vtx)
+    {
+        schema::graph_vtx_set_key_t::value_type slice = extensions::page_size * extensions::bitarray::cellsize;
+        schema::graph_vtx_set_key_t::value_type tail = vtx / slice;  // ie. the page in the list of pages
+        schema::graph_vtx_set_key_t::value_type map  = vtx % slice;  // ie. the index of the vertex in the page
+        schema::graph_vtx_set_key_t::value_type cell = map / extensions::bitarray::cellsize;  // ie. the cell in the page
+
+        return {tail, cell, map};
+    }
+
+    /**
+     * Updates the iter with the head of the list. If the cached key and iter
+     * point to the same page becomes a noop. The page is loaded into the passed
+     * tensor and accessor.
+     */
+    template<typename K, typename = schema::is_key_t<K>>
+    static int load_page(schema::DatabaseSet const& parent,
+                         K key,
+                         schema::list_key_t& iter,
+                         K& key_cached,
+                         schema::list_key_t& iter_cached,
+                         torch::Tensor& page)
+    {
+        int ret = MDB_SUCCESS, rc = 0;
+
+        if(key == key_cached && iter == iter_cached && iter.head())
+            return ret;  // ie. the page is already loaded.
+
+        if(key != key_cached || 0 == iter.head())
+        {
+            schema::list_key_t head;
+            assertm(MDB_SUCCESS == (rc = parent.main_.get(key, head)), rc, key);  // get head of list
+            iter.head() = head.head();
+        }
+
+        rc = parent.list_.get(iter, page);
+        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+
+        if(MDB_SUCCESS == rc)
+        {
+            key_cached = key;
+            iter_cached = iter;
+        }
+
+        ret = rc;
+        return ret;
+    }
+}  // namespace bitarray
 
 }}  // namespace extensions::graphdb
 
