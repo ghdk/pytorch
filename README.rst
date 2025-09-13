@@ -8,7 +8,7 @@ python::
     pip install --upgrade pip setuptools wheel mypy
     pip freeze > /tmp/requirements.txt && pip uninstall -r /tmp/requirements.txt -y
     pip install -r ./requirements.txt
-    pip install matplotlib
+    pip install matplotlib expecttest hypothesis mypy pytest
 
 build::
 
@@ -25,6 +25,7 @@ docker/linux::
 
 unittest::
 
+    python test/run_test.py  # all
     python3 -B test/test_license.py
 
 lldb::
@@ -33,10 +34,10 @@ lldb::
 
 update::
 
-    git checkout master
-    git checkout -b <date>
-    git fetch upstream master
-    git merge upstream/master
+    git checkout --track origin/viable/strict
+    git fetch --tags upstream viable/strict
+    git merge upstream/viable/strict
+    git checkout v1.13.0 -b e1.13.0
     git cherry-pick <old-branch>
 
 static analysis::
@@ -112,6 +113,11 @@ https://theaisummer.com/tfx/
 - Similarity Algorithms (KNN, Euclidean Distance, Cosine, Levenshtein,
                          Jaro-Winkler, SVD)
 
+====  large language models (LLMs)  ============================================
+- BLOOM (BigScience Language Open-science Open-access Multilingual)
+- Gopher, Chinchilla, and PaLM
+- GPT-3
+
 ====  memory  ==================================================================
 
 https://www.sicara.fr/blog-technique/2019-28-10-deep-learning-memory-usage-and-pytorch-optimization-tricks
@@ -132,3 +138,5 @@ c++::
     `<https://pytorch.org/cppdocs/>`_
 c10::
     `<https://github.com/pytorch/pytorch/wiki/Software-Architecture-for-c10>`_
+Aten::
+    `<https://pytorch.org/cppdocs/api/namespace_at.html#namespace-at>`_
