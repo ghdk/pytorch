@@ -155,6 +155,7 @@ extra_cpp_flags  = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', 
 extra_cpp_flags += gsl_conf_flags
 extra_cpp_flags += sanitizer_flags
 extra_ld_flags  = []
+extra_ld_flags += ['-lubsan'] if IS_LINUX else []
 extra_ld_flags += sanitizer_flags
 
 spl = lambda p: ["-I"+path+p for path in sys.path if 'site-packages' in path]
