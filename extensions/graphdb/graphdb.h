@@ -563,12 +563,16 @@ int visit(schema::DatabaseSet const& parent, K& key, visitor_t visitor)
 }
 
 template <typename K, typename V>
-void write(schema::DatabaseSet const& parent, K& key, V& value)
+void write(schema::DatabaseSet const& parent, K& key, V& value, bool hashed)
 {
     int rc = 0;
 
-    schema::list_key_t hash = {0,0};
-    hash.head() = hash::make_hash(value);
+    if(hashed)
+    {
+        schema::list_key_t hash = {0,0};
+        hash.head() = hash::make_hash(value);
+        extensions::graphdb::hash::write(parent, hash, key);
+    }
 
     schema::list_key_t head;
     rc = parent.main_.get(key, head);  // get head of list
@@ -579,7 +583,6 @@ void write(schema::DatabaseSet const& parent, K& key, V& value)
         assertm(MDB_SUCCESS == (rc = parent.main_.put(key, head, flags::put::DEFAULT)), rc);
     }
     extensions::graphdb::list::write(parent.list_, head, value);
-    extensions::graphdb::hash::write(parent, hash, key);
 }
 
 }  // namespace feature
