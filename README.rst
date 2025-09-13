@@ -5,7 +5,7 @@ python::
 
     python3 -m venv --copies env
     source ./env/bin/activate
-    pip install --upgrade pip setuptools wheel mypy
+    pip install --upgrade pip setuptools wheel
     pip freeze > /tmp/requirements.txt && pip uninstall -r /tmp/requirements.txt -y
     pip install -r ./requirements.txt
     pip install matplotlib expecttest hypothesis mypy pytest pandas networkx scipy lmdb
@@ -71,6 +71,10 @@ ramfs::
     ? hdiutil attach -nomount ram://$((2048*1024*20))  # 2048 memory blocks correspond to 1MB
     ? diskutil erasevolume APFS "RAMFS" </dev/disk5>
     ? hdiutil detach /Volumes/RAMFS
+
+    or
+
+    ? sudo mount_tmpfs ./ramfs
 
     ? RAMFS=/Volumes/RAMFS python -B -m unittest -v test_graphdb.Test.test_graph_iter_edge &
 

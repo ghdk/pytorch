@@ -13,6 +13,7 @@ based on the `2.3.1` release of PyTorch.
 - [Iterators](#iterators)
 - [LLVM plugin](#llvm-plugin)
 - [Mesh](#mesh)
+- [Theory](#theory)
 - [Threadpool](#threadpool)
 - [Build](#build)
 
@@ -58,6 +59,13 @@ Lives under `/extensions/iter`.
 ## LLVM plugin
 
 Lives under `/extensions/llvmast`.
+
+## Theory
+
+The study of algorithms, mostly in the areas of AI, Graph, Optimisation, and
+Parallelism.
+
+Lives under `/extensions/theory`.
 
 ## Threadpool
 
