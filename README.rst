@@ -8,10 +8,11 @@ python::
     pip install --upgrade pip setuptools wheel mypy
     pip freeze > /tmp/requirements.txt && pip uninstall -r /tmp/requirements.txt -y
     pip install -r ./requirements.txt
-    pip install matplotlib expecttest hypothesis mypy pytest
+    pip install matplotlib expecttest hypothesis mypy pytest pandas networkx scipy
 
 build::
 
+    git submodule deinit --all
     git submodule sync
     git submodule update --init --recursive --jobs 11
     MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0  python setup.py install
@@ -27,6 +28,7 @@ unittest::
 
     python test/run_test.py  # all
     python3 -B test/test_license.py
+    python -m unittest <extensions>/test_mps.py
 
 lldb::
 
@@ -34,7 +36,7 @@ lldb::
 
 gdb::
 
-    gdb -iex "set auto-load safe-path /" -iex "set breakpoint pending on" -ex "break permutation.h:32" -ex run --args python3 constraints/solver_test.py Test.test_constraints_solver_permutation
+    gdb -iex "set auto-load safe-path /" -iex "set breakpoint pending on" -ex "break permutation.h:32" -ex run --args python3 -m unittest -v solver_byz_test.Test.test_sum_of_time_signatures_of_syllables_constraint
 
 update::
 
@@ -49,7 +51,7 @@ update::
 
 static analysis::
 
-    mypy --disallow-untyped-defs <file>
+    mypy --strict --disable-error-code attr-defined --disable-error-code no-untyped-call --disable-error-code no-untyped-def -m <file as it appears in python's import statement>
 
 includes::
 
@@ -63,87 +65,32 @@ Codebase
 
 Eigen::
 
-   Undefine NDEBUG in /pytorch/third_party/eigen/Eigen/src/Core/util/Macros.h,
-   include it, and call eigen_assert().
+    Undefine NDEBUG in /pytorch/third_party/eigen/Eigen/src/Core/util/Macros.h,
+    include it, and call eigen_assert().
 
 Aten::
 
-     /pytorch/aten/src/ATen/core/Tensor.h
-     /pytorch/aten/src/ATen/test - APIs
+    /pytorch/aten/src/ATen/core/Tensor.h
+    /pytorch/aten/src/ATen/test - APIs
 
-TODOs
-=====
+MPS::
 
-====  contrib  =================================================================
-
-`<https://pytorch.org/docs/stable/community/contribution_guide.html>`_
-
-====  Federated learning  ======================================================
-
-`<https://ai.googleblog.com/2017/04/federated-learning-collaborative.html>`_
-
-====  CNNs  ====================================================================
-====  RNNs  ====================================================================
-
-recurrent neural network and Legendre polynomials
-
-====  Model Prunning  ==========================================================
-
-`<https://pytorch.org/tutorials/beginner/basics/optimization_tutorial.html>`_
-
-====  Probability  =============================================================
-
-`<https://pytorch.org/docs/stable/distributions.html>`_
-
-====  models  ==================================================================
-
-`<https://pytorch.org/vision/master/models.html>`_
-
-====  optimiser  ===============================================================
-
-====  transfer learning  =======================================================
-
-====  GPU/CUDA==================================================================
-
-GPU operators for bitmap, and GPU execution.
-
-====  pipeline  ================================================================
-
-https://theaisummer.com/tfx/
-
-====  Algorithms  ==============================================================
-
-- Ensemble Learning Algorithms (Random Forests, XGBoost, LightGBM, CatBoost)
-- Explanatory Algorithms (Linear Regression, Logistic Regression, SHAP, LIME)
-- Clustering Algorithms (k-Means, Hierarchical Clustering)
-- Dimensionality Reduction Algorithms (PCA, LDA)
-- Similarity Algorithms (KNN, Euclidean Distance, Cosine, Levenshtein,
-                         Jaro-Winkler, SVD)
-
-====  large language models (LLMs)  ============================================
-- BLOOM (BigScience Language Open-science Open-access Multilingual)
-- Gopher, Chinchilla, and PaLM
-- GPT-3
-
-====  memory  ==================================================================
-
-https://www.sicara.fr/blog-technique/2019-28-10-deep-learning-memory-usage-and-pytorch-optimization-tricks
-                         
-================================================================================
-Object detection/segmentation models, Transfer Learning, CNN, Autoencoders,
-GANs, Transformers, LSTMs, Ensemble Learning, Continual Learning, AutoML,
-Meta Learning, Reinforcement Learning, Domain Adaptation, Zero-shot Learning,
-OCR.
+    /pytorch/aten/src/ATen/mps
+    /pytorch/aten/src/ATen/native/mps
 
 Web
 ===
 
-forums::
-    `<https://discuss.pytorch.org>`_
-c++::
+:Aten: `<https://pytorch.org/cppdocs/api/namespace_at.html#namespace-at>`_
+:c10: `<https://github.com/pytorch/pytorch/wiki/Software-Architecture-for-c10>`_
+:c++: 
     `<https://pytorch.org/tutorials/intermediate/process_group_cpp_extension_tutorial.html>`_
     `<https://pytorch.org/cppdocs/>`_
-c10::
-    `<https://github.com/pytorch/pytorch/wiki/Software-Architecture-for-c10>`_
-Aten::
-    `<https://pytorch.org/cppdocs/api/namespace_at.html#namespace-at>`_
+:contrib: `<https://pytorch.org/docs/stable/community/contribution_guide.html>`_
+:forums: `<https://discuss.pytorch.org>`_
+:indexing: `<https://pytorch.org/cppdocs/notes/tensor_indexing.html>`_
+:models: `<https://pytorch.org/vision/master/models.html>`_
+:probability: `<https://pytorch.org/docs/stable/distributions.html>`_
+:profile: `<https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html>`_
+:wiki: `<https://github.com/pytorch/pytorch/wiki>`_
+
