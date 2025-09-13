@@ -10,7 +10,7 @@ class F(object):
         self._t = True
     
     def __call__(self):
-        ret = (self._a, self._t)
+        ret = (self._a if self._t else None)
         self._a += 1
         self._t = (13 != self._a)
         return ret
@@ -21,7 +21,8 @@ def even(number):
 class Test(unittest.TestCase):
 
     def test_filtered_iterator(self):
-        self.assertEqual([12], [x for x in FGI(GI(F()), even)])
+        e = GI(F())
+        self.assertEqual([12], [x for x in FGI(e, even)])
 
 if '__main__' == __name__:
     unittest.main(verbosity=2)

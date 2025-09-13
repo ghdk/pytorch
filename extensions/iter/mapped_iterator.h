@@ -40,8 +40,8 @@ public:  // methods
     }
 public:  // copy/move semantics
     explicit MappedIterator(iterator_t&& begin, iterator_t&& end, map_t const& f)
-        : range_{std::move(begin), std::move(end)}
-        , func_{f}
+    : range_{std::move(begin), std::move(end)}
+    , func_{f}
     {}
     MappedIterator(MappedIterator const& other) = delete;
     MappedIterator(MappedIterator&& other) = default;
@@ -49,7 +49,7 @@ public:  // copy/move semantics
     MappedIterator& operator=(MappedIterator&& other) = delete;
 private:  // members
     range_t<iterator_t> range_;
-    map_t func_;
+    map_t const& func_;
 };
 
 template<typename ToType, typename Enumerable>
@@ -70,35 +70,47 @@ public:  // methods
 
     iterator_t begin()
     {
-        return static_cast<MappedEnumerable const&>(*this).begin();
+        return static_cast<MappedEnumerable const*>(this)->begin();
     }
     iterator_t end()
     {
-        return static_cast<MappedEnumerable const&>(*this).end();
+        return static_cast<MappedEnumerable const*>(this)->end();
     }
 public:  // copy/move semantics
-    explicit MappedEnumerable(Enumerable&& e, typename iterator_t::map_t&& f)
-    : enumerable_{std::move(e)}
-    , func_{std::move(f)}
-    {}
     explicit MappedEnumerable(Enumerable const& e, typename iterator_t::map_t const& f)
     : enumerable_{e}, func_{f}
     {}
-    MappedEnumerable(MappedEnumerable const& other) = default;
-    MappedEnumerable(MappedEnumerable&& other) = default;
+    MappedEnumerable(MappedEnumerable const& other) = delete;
+    MappedEnumerable(MappedEnumerable&& other) = delete;
     MappedEnumerable& operator=(MappedEnumerable const& other) = delete;
     MappedEnumerable& operator=(MappedEnumerable&& other) = delete;
 private:  // members
-    Enumerable enumerable_;
-    typename iterator_t::map_t func_;
+    Enumerable const& enumerable_;
+    typename iterator_t::map_t const& func_;
 
 #ifdef PYDEF
+
+    /**
+     * pybind11 creates a temporary object when wrapping callbacks. The
+     * enumerable needs to hold a reference to a callback instead. When
+     * used with pybind11 the enumerable takes ownership of the temporary
+     * object referring to the callback, but not the callback.
+     */
+
+private:
+    typename iterator_t::map_t func_wrapper_;
 public:
+    explicit MappedEnumerable(Enumerable const& e, typename iterator_t::map_t&& f)
+    : enumerable_{e}
+    , func_{func_wrapper_}
+    , func_wrapper_{std::move(f)}
+    {}
+
     template <typename PY>
     static PY def(PY& c)
     {
         using T = typename PY::type;
-        c.def(py::init<Enumerable const&, typename iterator_t::map_t const&>());
+        c.def(py::init<Enumerable const&, typename iterator_t::map_t&&>());
         c.def("__iter__", [](ptr_t<T> e){ return py::make_iterator(e->begin(), e->end()); },
               py::keep_alive<0, 1>());
         return c;

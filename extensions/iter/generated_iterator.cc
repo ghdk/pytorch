@@ -17,4 +17,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
         auto c = py::class_<iter_t, ptr_t<iter_t>>(m, "GeneratedIterableMesh");
         iter_t::def(c);
     }
+    {
+        using iter_t = GeneratedEnumerable<torch::Tensor>;
+        auto c = py::class_<iter_t, ptr_t<iter_t>>(m, "GeneratedIterableTensor");
+        iter_t::def(c);
+    }
  }
