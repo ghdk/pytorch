@@ -5,7 +5,7 @@ python::
 
     python3 -m venv env
     source ./env/bin/activate
-    pip install --upgrade pip setuptools wheel
+    pip install --upgrade pip setuptools wheel mypy
     pip freeze > /tmp/requirements.txt && pip uninstall -r /tmp/requirements.txt -y
     pip install -r ./requirements.txt
     pip install matplotlib
@@ -14,7 +14,8 @@ build::
 
     git submodule sync
     git submodule update --init --recursive --jobs 0
-    MACOSX_DEPLOYMENT_TARGET=12.4 CC=clang CXX=clang++ DEBUG=1 USE_CUDA=0 USE_ROCM=0  python setup.py install
+    MACOSX_DEPLOYMENT_TARGET=12.4 CC=clang CXX=clang++  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0  python setup.py install
+                                                                                                                                                                                                         build -j11 install test clean
 
 unittest::
 
@@ -32,13 +33,29 @@ update::
     git merge upstream/master
     git cherry-pick <old-branch>
 
-NDEBUG
-======
+static analysis::
+
+    mypy --disallow-untyped-defs <file>
+
+includes::
+
+    Properties > C/C++ General > Paths and Symbols > includes > GNU C/GNU C++
+    ? find $(xcode-select -p) -name '*stdio*'
+    /Library/Developer/CommandLineTools/SDKs/MacOSX12.sdk/usr/include
+    /Library/Developer/CommandLineTools/SDKs/MacOSX12.sdk/usr/include/c++/v1
+
+Codebase
+========
 
 Eigen::
 
-   Undefine NDEBUG in /eigen/Eigen/src/Core/util/Macros.h, include it, and
-   call eigen_assert().
+   Undefine NDEBUG in /pytorch/third_party/eigen/Eigen/src/Core/util/Macros.h,
+   include it, and call eigen_assert().
+
+Aten::
+
+     /pytorch/aten/src/ATen/core/Tensor.h
+     /pytorch/aten/src/ATen/test - APIs
 
 TODOs
 =====
@@ -82,3 +99,14 @@ Object detection/segmentation models, Transfer Learning, CNN, Autoencoders,
 GANs, Transformers, LSTMs, Ensemble Learning, Continual Learning, AutoML,
 Meta Learning, Reinforcement Learning, Domain Adaptation, Zero-shot Learning,
 OCR.
+
+Web
+===
+
+forums::
+    `<https://discuss.pytorch.org>`_
+c++::
+    `<https://pytorch.org/tutorials/intermediate/process_group_cpp_extension_tutorial.html>`_
+    `<https://pytorch.org/cppdocs/>`_
+c10::
+    `<https://github.com/pytorch/pytorch/wiki/Software-Architecture-for-c10>`_
