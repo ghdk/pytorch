@@ -7,14 +7,34 @@ extern "C"
 #include "lmdb.h"
 }
 
-#include "schema.h"
 #include "db.h"
+#include "schema.h"
 #include "graphdb.h"
+#include "envpool.h"
 
 // The IDE doesn't like the PYBIND11_MODULE macro, hence we redirect it
 // to this function which is easier to read.
 void PYBIND11_MODULE_IMPL(py::module_ m)
 {
+    m.attr("PAGE_SIZE") = pybind11::int_(extensions::page_size);
+
+    m.attr("SCHEMA") = py::cast(extensions::graphdb::schema::SCHEMA);
+    m.attr("VERTEX_FEATURE")     = py::cast(extensions::graphdb::schema::VERTEX_FEATURE);
+    m.attr("VERTEX_FEATURE_H")   = py::cast(extensions::graphdb::schema::VERTEX_FEATURE_H);
+    m.attr("VERTEX_FEATURE_L")   = py::cast(extensions::graphdb::schema::VERTEX_FEATURE_L);
+    m.attr("EDGE_FEATURE")       = py::cast(extensions::graphdb::schema::EDGE_FEATURE);
+    m.attr("EDGE_FEATURE_H")     = py::cast(extensions::graphdb::schema::EDGE_FEATURE_H);
+    m.attr("EDGE_FEATURE_L")     = py::cast(extensions::graphdb::schema::EDGE_FEATURE_L);
+    m.attr("GRAPH_FEATURE")      = py::cast(extensions::graphdb::schema::GRAPH_FEATURE);
+    m.attr("GRAPH_FEATURE_H")    = py::cast(extensions::graphdb::schema::GRAPH_FEATURE_H);
+    m.attr("GRAPH_FEATURE_L")    = py::cast(extensions::graphdb::schema::GRAPH_FEATURE_L);
+    m.attr("ADJACENCY_MATRIX")   = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX);
+    m.attr("ADJACENCY_MATRIX_H") = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX_H);
+    m.attr("ADJACENCY_MATRIX_L") = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX_L);
+    m.attr("VERTEX_SET")         = py::cast(extensions::graphdb::schema::VERTEX_SET);
+    m.attr("VERTEX_SET_H")       = py::cast(extensions::graphdb::schema::VERTEX_SET_H);
+    m.attr("VERTEX_SET_L")       = py::cast(extensions::graphdb::schema::VERTEX_SET_L);
+
     {
         /**
          * Test submodule
@@ -25,10 +45,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_cardinalities",
                +[]{
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc = 0;
 
-                   extensions::graphdb::Environment env(filename, extensions::graphdb::schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
                    assertm(0 == env.cardinality(), "cardinality=", env.cardinality());
 
                    {
@@ -37,13 +57,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0 == dbA.cardinality(), "cardinality=", dbA.cardinality());
 
                        {
-                           const size_t key = dbA.cardinality();
+                           const extensions::graphdb::schema::list_key_t key = {dbA.cardinality(),0};
                            const size_t value = 0xba5eba11;
 
-                           extensions::graphdb::mdb_view keyv(&key, 1);
-                           extensions::graphdb::mdb_view valuev(&value, 1);
-
-                           int rc = dbA.put(keyv, valuev, 0);
+                           int rc = dbA.put(key, value, 0);
                            assert(MDB_SUCCESS == rc);
                        }
 
@@ -51,13 +68,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0 == dbB.cardinality(), "cardinality=", dbB.cardinality());
 
                        {
-                           const size_t key = dbB.cardinality();
+                           const extensions::graphdb::schema::list_key_t key = {dbB.cardinality(),0};
                            const size_t value = 0x00ddba11;
 
-                           extensions::graphdb::mdb_view keyv(&key, 1);
-                           extensions::graphdb::mdb_view valuev(&value, 1);
-
-                           int rc = dbB.put(keyv, valuev, 0);
+                           int rc = dbB.put(key, value, 0);
                            assert(MDB_SUCCESS == rc);
                        }
 
@@ -74,15 +88,12 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(1 == dbA.cardinality(), "cardinality=", dbA.cardinality());
 
                        {
-                           size_t key = 0;
+                           int rc = 0;
+                           extensions::graphdb::schema::list_key_t key = {0,0};
+                           size_t value = 0;
 
-                           extensions::graphdb::mdb_view keyv(&key, 1);
-                           extensions::graphdb::mdb_view<size_t> value;
-
-                           int rc = dbA.get(keyv, value);
-                           assert(MDB_SUCCESS == rc);
-
-                           assert(0xba5eba11 == *(value.begin()));
+                           assertm(MDB_SUCCESS == (rc = dbA.get(key, value)), rc);
+                           assertm(0xba5eba11 == value, value);
 
                        }
 
@@ -90,15 +101,12 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(1 == dbB.cardinality(), "cardinality=", dbB.cardinality());
 
                        {
-                           size_t key = 0;
+                           int rc = 0;
+                           extensions::graphdb::schema::list_key_t key = {0,0};
+                           size_t value = 0;
 
-                           extensions::graphdb::mdb_view keyv(&key, 1);
-                           extensions::graphdb::mdb_view<size_t> value;
-
-                           int rc = dbB.get(keyv, value);
-                           assert(MDB_SUCCESS == rc);
-
-                           assert(0x00ddba11 == *(value.begin()));
+                           assertm(MDB_SUCCESS == (rc = dbB.get(key, value)), rc);
+                           assertm(0x00ddba11 == value, value);
 
                        }
 
@@ -109,13 +117,12 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_tensor_api",
                +[]{
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc = 0;
 
-                   extensions::graphdb::Environment env(filename, extensions::graphdb::schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    std::string key_s("tensor");
-                   extensions::graphdb::mdb_view key(key_s.data(), key_s.size());
 
                    auto orig = torch::rand({1,2,3,5});
 
@@ -127,9 +134,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        extensions::graphdb::Transaction txn(env, 0);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::WRITE);
 
-                       extensions::graphdb::mdb_view value(tensor.data_ptr<float>(), tensor.numel());
-
-                       int rc = db.put(key, value, 0);
+                       int rc = db.put(key_s, tensor, 0);
                        assert(MDB_SUCCESS == rc);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
@@ -137,11 +142,9 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    {
                        extensions::graphdb::Transaction txn(env, MDB_RDONLY);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::READ);
-                       extensions::graphdb::mdb_view<float> value;
-                       assertm(MDB_SUCCESS == (rc = db.get(key, value)), rc);
+                       auto tensor = torch::zeros(orig.sizes(), orig.options());
 
-                       auto options = torch::TensorOptions().dtype(torch::kFloat);
-                       torch::Tensor tensor = torch::from_blob(value.begin(), {1,2,3,5}, options);
+                       assertm(MDB_SUCCESS == (rc = db.get(key_s, tensor)), rc);
                        assertm(orig.equal(tensor), orig, tensor);
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
@@ -150,33 +153,28 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_string_api",
                +[]{
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc = 0;
 
-                   extensions::graphdb::Environment env(filename, extensions::graphdb::schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    std::string key("key");
                    std::string value("value");
-                   extensions::graphdb::mdb_view key_v(key.data(), key.size());
-                   extensions::graphdb::mdb_view val_v(value.data(), value.size());
-
                    {
                        extensions::graphdb::Transaction txn(env, 0);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::WRITE);
-                       assertm(MDB_SUCCESS == (rc = db.put(key_v, val_v, 0)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.put(key, value, 0)), rc);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
                    {
                        extensions::graphdb::Transaction txn(env, MDB_RDONLY);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::READ);
-                       extensions::graphdb::mdb_view<char> data;
+                       std::string read(value.size(), '\0');
 
-                       assertm(MDB_SUCCESS == (rc = db.get(key_v, data)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(key, read)), rc);
 
-                       std::string read(data.data(), data.size());
                        assertm(value == read, value, read);
-
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
                });
@@ -184,20 +182,18 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.def("test_graphdb_int_api",
                +[]{
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc = 0;
 
-                   extensions::graphdb::Environment env(filename, extensions::graphdb::schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    const uint64_t value = 0xba5eba11;
-                   std::string key_s("int");
-                   extensions::graphdb::mdb_view key(key_s.data(), key_s.size());
+                   std::string key("int");
 
                    {
                        extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::WRITE);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::WRITE);
-                       extensions::graphdb::mdb_view mdbvA(&value, 1);
-                       rc = db.put(key, mdbvA, 0);
+                       rc = db.put(key, value, 0);
                        assert(MDB_SUCCESS == rc);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
@@ -205,55 +201,52 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    {
                        extensions::graphdb::Transaction txn(env, extensions::graphdb::flags::txn::READ);
                        extensions::graphdb::Database db(txn, env.schema_[extensions::graphdb::schema::VERTEX_FEATURE], extensions::graphdb::flags::db::READ);
-                       extensions::graphdb::mdb_view<uint64_t> mdbvB;
-                       rc = db.get(key, mdbvB);
-                       assert(MDB_SUCCESS == rc);
-
-                       assertm(value == *(mdbvB.begin()), *(mdbvB.begin()));
+                       uint64_t read = 0;
+                       assertm(MDB_SUCCESS == (rc = db.get(key, read)), rc);
+                       assertm(value == read, read);
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
                });
 
-        mt.def("test_graphdb_find_slot",
+        mt.def("test_graphdb_find_head",
                +[]{
 
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc;
 
-                   Environment env(filename, schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    {
                        {
                            Transaction txnW(env, flags::txn::WRITE);
-                           Database dbW(txnW, env.schema_[schema::L<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                           Database dbW(txnW, env.schema_[schema::L(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                            schema::list_key_t hint;
                            schema::list_key_t value;
-                           mdb_view<schema::list_key_t> hint_k(&hint, 1);
                            mdb_view<schema::list_key_t> hint_v(&value, 1);
 
-                           list::find_slot(dbW, hint_k, hint_v);
-                           assertm(0 != hint_k.begin()->head(), hint_k.begin()->head(), hint_k.begin()->tail());
+                           list::find_head(dbW, hint);
+                           assertm(0 != hint.head(), hint.head(), hint.tail());
                            assertm(MDB_SUCCESS == (rc = txnW.commit()), rc);
                        }
 
                        {
                            Transaction txnR(env, flags::txn::READ);
-                           Database dbR(txnR, env.schema_[schema::L<schema::VERTEX_FEATURE>], flags::db::READ);
-                           mdb_view<schema::meta_key_t> meta_k(&schema::META_KEY_PAGE, 1);
-                           mdb_view<schema::meta_page_t> meta_v;
+                           Database dbR(txnR, env.schema_[schema::L(schema::VERTEX_FEATURE)], flags::db::READ);
+                           schema::meta_key_t key = schema::META_KEY_PAGE;
+                           schema::meta_page_t value = 0;
 
-                           assertm(MDB_SUCCESS == (rc = dbR.get(meta_k, meta_v)), rc);
-                           assertm(1 == *(meta_v.begin()), *(meta_v.begin()));
+                           assertm(MDB_SUCCESS == (rc = dbR.get(key, value)), rc);
+                           assertm(1 == value, value);
                            assertm(MDB_SUCCESS == (rc = txnR.abort()), rc);
                        }
 
                        {
                            // fill in the first page
                            Transaction txnE(env, flags::txn::WRITE);
-                           Database dbE(txnE, env.schema_[schema::L<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                           Database dbE(txnE, env.schema_[schema::L(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                            schema::list_key_t hint;
                            schema::list_key_t value;
@@ -262,10 +255,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                if(schema::RESERVED == h) continue;
                                hint.head() = h;
                                value.graph() = 0xba5eba11;
-                               mdb_view<schema::list_key_t> hint_k(&hint, 1);
-                               mdb_view<schema::list_key_t> hint_v(&value, 1);
-
-                               assertm(MDB_SUCCESS == (rc = dbE.put(hint_k, hint_v, flags::put::DEFAULT)), rc);
+                               assertm(MDB_SUCCESS == (rc = dbE.put(hint, value, flags::put::DEFAULT)), rc);
                            }
                            assertm(MDB_SUCCESS == (rc = txnE.commit()), rc);
                        }
@@ -273,26 +263,25 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        {
                            // trigger expansion
                            Transaction txn(env, flags::txn::WRITE);
-                           Database db(txn, env.schema_[schema::L<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                           Database db(txn, env.schema_[schema::L(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                            schema::list_key_t hint;
                            schema::list_key_t value;
-                           mdb_view<schema::list_key_t> hint_k(&hint, 1);
                            mdb_view<schema::list_key_t> hint_v(&value, 1);
 
-                           list::find_slot(db, hint_k, hint_v);
-                           assertm(extensions::page_size * CHAR_BIT <= hint_k.begin()->head(), hint_k.begin()->head(), hint_k.begin()->tail());
+                           list::find_head(db, hint);
+                           assertm(extensions::page_size * CHAR_BIT <= hint.head(), hint.head(), hint.tail());
                            assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                        }
 
                        {
                            Transaction txn(env, flags::txn::READ);
-                           Database db(txn, env.schema_[schema::L<schema::VERTEX_FEATURE>], flags::db::READ);
-                           mdb_view<schema::meta_key_t> meta_k(&schema::META_KEY_PAGE, 1);
-                           mdb_view<schema::meta_page_t> meta_v;
+                           Database db(txn, env.schema_[schema::L(schema::VERTEX_FEATURE)], flags::db::READ);
+                           schema::meta_key_t key = schema::META_KEY_PAGE;
+                           schema::meta_page_t value = 0;
 
-                           assertm(MDB_SUCCESS == (rc = db.get(meta_k, meta_v)), rc);
-                           assertm(2 == *(meta_v.begin()), *(meta_v.begin()));
+                           assertm(MDB_SUCCESS == (rc = db.get(key, value)), rc);
+                           assertm(2 == value, value);
                            assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                        }
                    }
@@ -344,10 +333,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc;
 
-                   Environment env(filename, schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    using elem_t = uint16_t;
                    using buff_t = std::array<elem_t, extensions::page_size>;  // == 2 pages
@@ -361,53 +350,47 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        buffer[2*chunk-1] = 0xbee5;
 
                        Transaction txn(env, flags::txn::WRITE);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        schema::list_key_t head{1,0};
-                       mdb_view<schema::list_key_t> head_k(&head, 1);
 
-                       mdb_view<elem_t> head_v(buffer.data(), buffer.size());
-
-                       list::write(db, head_k, head_v);
+                       list::write(db, head, buffer);
 
                        // verify the DB
 
                        schema::list_key_t iter;
-                       mdb_view<schema::list_key_t> iter_k(&iter, 1);
-                       mdb_view<elem_t> iter_v;
+                       buff_t read;
 
                        iter = schema::list_key_t{1,0};
-                       assertm(MDB_SUCCESS == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
 
-                       assertm(0xba5e == *(iter_v.begin()), *(iter_v.begin()));
-                       assertm(0      == *(iter_v.begin() + 1), *(iter_v.begin() + 1));
-                       assertm(0      == *(iter_v.begin() + chunk - 2), *(iter_v.begin() + chunk - 2));
-                       assertm(0xba11 == *(iter_v.begin() + chunk - 1), *(iter_v.begin() + chunk - 1));
+                       assertm(0xba5e == read[0],             read[0]);
+                       assertm(0      == read[0 + 1],         read[0 + 1]);
+                       assertm(0      == read[0 + chunk - 2], read[0 + chunk - 2]);
+                       assertm(0xba11 == read[0 + chunk - 1], read[0 + chunk - 1]);
 
                        iter = schema::list_key_t{1,1};
-                       assertm(MDB_SUCCESS == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
 
-                       assertm(0xc001 == *(iter_v.begin()),     *(iter_v.begin()));
-                       assertm(0      == *(iter_v.begin() + 1), *(iter_v.begin() + 1));
-                       assertm(0      == *(iter_v.begin() + chunk - 2), *(iter_v.begin() + chunk - 2));
-                       assertm(0xbee5 == *(iter_v.begin() + chunk - 1), *(iter_v.begin() + chunk - 1));
+                       assertm(0xc001 == read[0],             read[0]);
+                       assertm(0      == read[0 + 1],         read[0 + 1]);
+                       assertm(0      == read[0 + chunk - 2], read[0 + chunk - 2]);
+                       assertm(0xbee5 == read[0 + chunk - 1], read[0 + chunk - 1]);
 
                        iter = schema::list_key_t{1,2};
-                       assertm(MDB_NOTFOUND == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_NOTFOUND == (rc = db.get(iter, read)), rc);
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
                    {
                        Transaction txn(env, flags::txn::NESTED);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::READ);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::READ);
 
                        buff_t buffer{0};
                        schema::list_key_t head{1,0};
-                       mdb_view<schema::list_key_t> head_k(&head, 1);
-                       mdb_view<elem_t> head_v(buffer.data(), buffer.size());
 
-                       list::read(db, head_k, head_v);
+                       list::read(db, head, buffer);
 
                        assertm(0xba5e == buffer[0], buffer[0]);
                        assertm(0      == buffer[1], buffer[1]);
@@ -427,10 +410,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc;
 
-                   Environment env(filename, schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    using elem_t = uint16_t;
                    using buff_t = std::array<elem_t, extensions::page_size>;  // == 2 pages
@@ -444,56 +427,50 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        buffer[2*chunk-1] = 0xbee5;
 
                        Transaction txn(env, flags::txn::WRITE);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        schema::list_key_t head{1,0};
-                       mdb_view<schema::list_key_t> head_k(&head, 1);
 
-                       mdb_view<elem_t> head_v(buffer.data(), buffer.size());
-
-                       list::write(db, head_k, head_v);
+                       list::write(db, head, buffer);
 
                        // verify the DB
 
                        schema::list_key_t iter;
-                       mdb_view<schema::list_key_t> iter_k(&iter, 1);
-                       mdb_view<elem_t> iter_v;
+                       buff_t read;
 
                        iter = schema::list_key_t{1,0};
-                       assertm(MDB_SUCCESS == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
 
                        iter = schema::list_key_t{1,1};
-                       assertm(MDB_SUCCESS == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
 
                        iter = schema::list_key_t{1,2};
-                       assertm(MDB_NOTFOUND == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_NOTFOUND == (rc = db.get(iter, read)), rc);
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
                    {
                        schema::list_key_t head{1,0};
-                       mdb_view<schema::list_key_t> head_k(&head, 1);
 
                        Transaction txn(env, flags::txn::WRITE);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
-                       list::clear(db, head_k);
+                       list::clear(db, head);
 
                        // verify the DB
 
                        schema::list_key_t iter;
-                       mdb_view<schema::list_key_t> iter_k(&iter, 1);
-                       mdb_view<elem_t> iter_v;
+                       buff_t read;
 
                        iter = schema::list_key_t{1,0};
-                       assertm(MDB_NOTFOUND == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_NOTFOUND == (rc = db.get(iter, read)), rc);
 
                        iter = schema::list_key_t{1,1};
-                       assertm(MDB_NOTFOUND == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_NOTFOUND == (rc = db.get(iter, read)), rc);
 
                        iter = schema::list_key_t{1,2};
-                       assertm(MDB_NOTFOUND == (rc = db.get(iter_k, iter_v)), rc);
+                       assertm(MDB_NOTFOUND == (rc = db.get(iter, read)), rc);
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
@@ -504,49 +481,62 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc;
 
-                   Environment env(filename, schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    {
                        Transaction txn(env, flags::txn::WRITE);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        schema::list_key_t hash{1,0};
-                       mdb_view<schema::list_key_t> hash_k(&hash, 1);
-
                        schema::list_key_t value;
-                       mdb_view<schema::list_key_t> hash_v(&value, 1);
+                       schema::list_key_t iter = hash;
+                       size_t sz;
+
+                       {
+                           list::size(db, iter, sz);
+                           assertm(0 == iter.tail(), iter.tail());
+                       }
 
                        value = {0xba5e, 0xba11};
-                       hash::write(db, hash_k, hash_v);
+                       hash::write(db, hash, value);
+
+                       {
+                           list::size(db, iter, sz);
+                           assertm(1 == iter.tail(), iter.tail());
+                       }
 
                        value = {0xdead, 0xbeef};
-                       hash::write(db, hash_k, hash_v);
+                       hash::write(db, hash, value);
+
+                       {
+                           list::size(db, iter, sz);
+                           assertm(2 == iter.tail(), iter.tail());
+                       }
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
                    {
                        Transaction txn(env, flags::txn::READ);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::READ);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::READ);
 
                        schema::list_key_t hash;
-                       mdb_view<schema::list_key_t> hash_k(&hash, 1);
-                       mdb_view<schema::list_key_t> hash_v;
+                       schema::list_key_t value;
 
                        hash = {1,0};
 
-                       assertm(MDB_SUCCESS == (rc = db.get(hash_k, hash_v)), rc);
-                       assertm(0xba5e == hash_v.begin()->head(), hash_v.begin()->head());
-                       assertm(0xba11 == hash_v.begin()->tail(), hash_v.begin()->tail());
+                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
+                       assertm(0xba5e == value.head(), value.head());
+                       assertm(0xba11 == value.tail(), value.tail());
 
                        hash = {1,1};
 
-                       assertm(MDB_SUCCESS == (rc = db.get(hash_k, hash_v)), rc);
-                       assertm(0xdead == hash_v.begin()->head(), hash_v.begin()->head());
-                       assertm(0xbeef == hash_v.begin()->tail(), hash_v.begin()->tail());
+                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
+                       assertm(0xdead == value.head(), value.head());
+                       assertm(0xbeef == value.tail(), value.tail());
 
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
@@ -556,86 +546,144 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                +[]{
                    using namespace extensions::graphdb;
 
-                   std::string filename = "./test.db";
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
                    int rc;
 
-                   Environment env(filename, schema::SCHEMA);
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    {
                        Transaction txn(env, flags::txn::NESTED);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        schema::list_key_t hash{1,0};
-                       mdb_view<schema::list_key_t> hash_k(&hash, 1);
-
                        schema::list_key_t value;
-                       mdb_view<schema::list_key_t> hash_v(&value, 1);
 
                        value = {0xba5e, 0xba11};
-                       hash::write(db, hash_k, hash_v);
+                       hash::write(db, hash, value);
 
                        value = {0xdead, 0xbeef};
-                       hash::write(db, hash_k, hash_v);
+                       hash::write(db, hash, value);
 
                        value = {0xc001, 0xbee5};
-                       hash::write(db, hash_k, hash_v);
+                       hash::write(db, hash, value);
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
                    {
                        Transaction txn(env, flags::txn::READ);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::READ);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::READ);
 
                        schema::list_key_t hash;
-                       mdb_view<schema::list_key_t> hash_k(&hash, 1);
-                       mdb_view<schema::list_key_t> hash_v;
+                       schema::list_key_t value;
 
                        hash = {1,0};
-                       assertm(MDB_SUCCESS == (rc = db.get(hash_k, hash_v)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
 
                        hash = {1,1};
-                       assertm(MDB_SUCCESS == (rc = db.get(hash_k, hash_v)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
 
                        hash = {1,2};
-                       assertm(MDB_SUCCESS == (rc = db.get(hash_k, hash_v)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(hash, value)), rc);
 
                        hash = {1,3};
-                       assertm(MDB_NOTFOUND == (rc = db.get(hash_k, hash_v)), rc);
+                       assertm(MDB_NOTFOUND == (rc = db.get(hash, value)), rc);
 
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
 
                    {
                        Transaction txn(env, flags::txn::NESTED);
-                       Database db(txn, env.schema_[schema::H<schema::VERTEX_FEATURE>], flags::db::WRITE);
+                       Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        {
                            schema::list_key_t hash;
-                           mdb_view<schema::list_key_t> hash_k(&hash, 1);
 
                            hash = {1,0};
-                           list::remove(db, hash_k);
+                           list::remove(db, hash);
                        }
 
                        {
                            schema::list_key_t iter;
-                           mdb_view<schema::list_key_t> iter_k(&iter, 1);
-                           mdb_view<schema::list_key_t> iter_v;
+                           schema::list_key_t value;
 
                            iter = {1,1};
-                           assertm(MDB_SUCCESS == (rc = db.get(iter_k, iter_v)), rc);
+                           assertm(MDB_SUCCESS == (rc = db.get(iter, value)), rc);
 
                            iter = {1,2};
-                           assertm(MDB_NOTFOUND == (rc = db.get(iter_k, iter_v)), rc);
+                           assertm(MDB_NOTFOUND == (rc = db.get(iter, value)), rc);
 
                            iter = {1,3};
-                           assertm(MDB_NOTFOUND == (rc = db.get(iter_k, iter_v)), rc);
+                           assertm(MDB_NOTFOUND == (rc = db.get(iter, value)), rc);
 
                            assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                        }
                    }
                });
+
+        mt.def("test_graphdb_cursor_next",
+               +[]{
+                   using namespace extensions::graphdb;
+
+                   std::string filename = "./test" + std::to_string(__LINE__) + ".db";
+                   int rc;
+
+                   extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+
+                   {
+                       Transaction txn(env, flags::txn::NESTED);
+                       Database db(txn, env.schema_[schema::VERTEX_FEATURE_H], flags::db::WRITE);
+
+                       for(size_t head = 1; head < 4; head++)
+                       {
+                           schema::list_key_t hash{head,0};
+                           schema::list_key_t value;
+
+                           value = {0xba5e, 0xba11};
+                           hash::write(db, hash, value);
+
+                           value = {0xdead, 0xbeef};
+                           hash::write(db, hash, value);
+
+                           value = {0xc001, 0xbee5};
+                           hash::write(db, hash, value);
+                       }
+
+                       assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+                   }
+
+                   {
+                       Transaction txn(env, flags::txn::READ);
+                       Database db(txn, env.schema_[schema::VERTEX_FEATURE_H], flags::db::READ);
+
+                       {
+                           Cursor cursor(txn, db);
+
+                           size_t head = 2;
+                           schema::list_key_t iter{head,0};
+                           schema::list_key_t value;
+
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_SET)), rc);
+
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
+                           assertm(head == iter.head(), iter.head());
+                           assertm(1 == iter.tail(), iter.tail());
+                           assertm(0xdead == value.head(), value.head());
+                           assertm(0xbeef == value.tail(), value.tail());
+
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
+                           assertm(head == iter.head(), iter.head());
+                           assertm(2 == iter.tail(), iter.tail());
+
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
+                           assertm(head+1 == iter.head(), iter.head());  // moves to the next head
+                           assertm(0 == iter.tail(), iter.tail());
+                       }
+
+                       assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
+                   }
+               });
+
     }
 }
 

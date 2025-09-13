@@ -96,7 +96,7 @@ private:  // members
     {
         using T = typename PY::type;
         c.def(py::init<Enumerable const&, typename iterator_t::map_t&&>());
-        c.def("__iter__", [](ptr_t<T> e){ return py::make_iterator(e->begin(), e->end()); },
+        c.def("__iter__", +[](ptr_t<T> e){ return py::make_iterator(e->begin(), e->end()); },
               py::keep_alive<0, 1>());
         return c;
     }

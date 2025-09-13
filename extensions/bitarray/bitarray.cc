@@ -60,20 +60,23 @@ int64_t extensions::bitarray::size(accessor_t accessor)
 torch::Tensor extensions::bitarray::set(torch::Tensor tensor, int64_t index, bool truth)
 {
     assertm(size(tensor) > index && index >= 0, "Index ", index, " is out of bounds [0,", size(tensor), ").");
-    set(tensor.accessor<cell_t, 1UL>(), index, truth);
+    auto acc = tensor.accessor<cell_t, 1UL>();
+    set(acc, index, truth);
     return tensor;
 }
 
 bool extensions::bitarray::get(torch::Tensor tensor, int64_t index)
 {
     assertm(size(tensor) > index && index >= 0, "Index ", index, " is out of bounds [0,", size(tensor), ").");
-    return get(tensor.accessor<cell_t, 1UL>(), index);
+    auto acc = tensor.accessor<cell_t, 1UL>();
+    return get(acc, index);
 }
 
 torch::Tensor extensions::bitarray::negate(torch::Tensor tensor)
 {
     assertm(size(tensor) > 0, "");
-    negate(tensor.accessor<cell_t, 1UL>());
+    auto acc = tensor.accessor<cell_t, 1UL>();
+    negate(acc);
     return tensor;
 }
 
@@ -81,7 +84,8 @@ int64_t extensions::bitarray::size(torch::Tensor tensor)
 {
     assertm(1 == tensor.dim(), "Rank = " + std::to_string(tensor.dim()) + ".");
     assertm(torch::kUInt8 == tensor.dtype(), "");
-    return size(tensor.accessor<cell_t, 1UL>());
+    auto acc = tensor.accessor<cell_t, 1UL>();
+    return size(acc);
 }
 
 void PYBIND11_MODULE_IMPL(py::module_ m)

@@ -12,60 +12,49 @@ namespace extensions { namespace graph
  */
 struct Graph
 {
+
 public:
 
     operator std::string();
 
-    torch::Tensor vertices();
-    torch::Tensor edges();
-    const torch::Tensor vertices() const;
-    const torch::Tensor edges() const;
+    iter::GeneratedEnumerable<feature::index_t> vertices();
+    iter::GeneratedEnumerable<std::pair<feature::index_t, feature::index_t>> edges();
+    iter::GeneratedEnumerable<feature::index_t> vertices() const;
+    iter::GeneratedEnumerable<std::pair<feature::index_t, feature::index_t>> edges() const;
 
-    bool vertex(index_t);
+    bool vertex(feature::index_t i);
+    feature::index_t vertex(feature::index_t index, bool truth);
+    bool edge(feature::index_t i, feature::index_t j);
+    void edge(feature::index_t i, feature::index_t j, bool truth);
 
-    /**
-     * - When bool is True, adds a vertex.
-     * - When bool is False, removes a vertex.
-     *
-     * On vertex additions:
-     * - When the vertices set at i is False, sets the bit to True.
-     * - When the vertices set at i is True, picks a random index
-     * r in [0, max index_t), and if there is a collision follows the
-     * open addressing algorithm, seeking forward from r to the end
-     * of the PAGE holding r. If a 0 bit cannot be found in the range
-     * [r, PAGE_SIZE), the graph is expanded by PAGE_SIZE, and the bit
-     * in the newly allocated page at r%PAGE_SIZE is set.
-     */
-    index_t vertex(index_t, bool);
+public:
+    static Graph make_graph()
+    {
+        Graph ret;
+        ret.storage_ = std::make_shared<storage::storage_t>(storage::Memory());
+        return ret;
+    }
 
-    bool edge(index_t, index_t);
-    void edge(index_t, index_t, bool);
+    static Graph make_graph(graphdb::Environment& env, graph::feature::index_t graph)
+    {
+        Graph ret;
+        ret.storage_ = std::make_shared<storage::storage_t>(storage::Database(env, graph));
+        return ret;
+    }
 
-public:  // copy/move semantics
+private:
+    Graph()
+    : storage_{nullptr}
+    {}
 
-    /**
-     * A tensor is a thin object holding a pointer to the underlying storage.
-     * Hence passing a graph object by copy is fairly cheap, as it will only
-     * bump the reference counts of the underlying storage.
-     */
-    Graph();
+public:
     Graph(Graph const& other) = default;
-    Graph(Graph&& other) = delete;
+    Graph(Graph&& other) = default;
     Graph& operator=(Graph const& other) = default;
     Graph& operator=(Graph&& other) = delete;
 
 private:
-
-    /**
-     * The graph is data agnostic, consists of bitmaps.
-     *
-     * The vertices bitmap, identifies the presence of a vertex. Through reallocs
-     * and vertex deletions some bits will be zero. It is a 1D tensor.
-     *
-     * The edges bitmap is an adjacency matrix. It is a 2D tensor.
-     */
-    torch::Tensor vertices_;
-    torch::Tensor edges_;
+    storage::storage_ptr_t storage_;
 
 #ifdef PYDEF
 public:
@@ -73,15 +62,14 @@ public:
     static PY def(PY& c)
     {
         using T = typename PY::type;
-        c.def(py::init<>());
         c.def("__repr__", +[](ptr_t<Graph> self){return (std::string)*self;});
         c.def("__str__", +[](ptr_t<Graph> self){return (std::string)*self;});
-        c.def("vertices", static_cast<torch::Tensor (T::*)()>(&T::vertices));
-        c.def("edges",    static_cast<torch::Tensor (T::*)()>(&T::edges));
-        c.def("is_vertex", static_cast<bool(T::*)(index_t)>(&T::vertex));
-        c.def("vertex", static_cast<index_t(T::*)(index_t,bool)>(&T::vertex));
-        c.def("is_edge", static_cast<bool(T::*)(index_t,index_t)>(&T::edge));
-        c.def("edge", static_cast<void(T::*)(index_t,index_t,bool)>(&T::edge));
+        c.def("vertices", static_cast<iter::GeneratedEnumerable<feature::index_t>(T::*)(void)>(&T::vertices));
+        c.def("edges",    static_cast<iter::GeneratedEnumerable<std::pair<feature::index_t, feature::index_t>>(T::*)(void)>(&T::edges));
+        c.def("is_vertex", static_cast<bool(T::*)(feature::index_t)>(&T::vertex));
+        c.def("vertex", static_cast<feature::index_t(T::*)(feature::index_t,bool)>(&T::vertex));
+        c.def("is_edge", static_cast<bool(T::*)(feature::index_t,feature::index_t)>(&T::edge));
+        c.def("edge", static_cast<void(T::*)(feature::index_t,feature::index_t,bool)>(&T::edge));
         return c;
     }
 #endif  // PYDEF

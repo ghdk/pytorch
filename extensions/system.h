@@ -39,6 +39,8 @@
 #pragma GCC diagnostic pop
 #endif
 
+#define EXPORT __attribute__((visibility ("default")))
+
 namespace extensions
 {
 template<typename ...Args>
@@ -71,6 +73,17 @@ bool assertlog(const Args& ...args)
 
     constexpr std::size_t hardware_destructive_interference_size_double = hardware_destructive_interference_size * 2;
     constexpr int page_size = 4096;  // bytes
+
+    template<typename...>
+    struct false_always: std::false_type {};
+
+    template <typename T, typename = std::void_t<>>
+    struct is_contiguous: std::false_type {};
+    template <typename T>
+    struct is_contiguous<T, std::enable_if_t<   std::is_same_v<typename std::remove_cv_t<T>::value_type*, decltype(std::declval<std::remove_cv_t<T>>().data())>
+                                             && std::is_same_v<std::size_t, decltype(std::declval<std::remove_cv_t<T>>().size())>>>
+    : std::true_type
+    {};
 
 }  // namespace extensions
 
