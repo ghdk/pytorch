@@ -13,7 +13,6 @@ import traceback
 from graphdb import graphdb
 from bitarray import bitarray
 from graph import graph
-from manager import TransactionNode
 
 class Test(unittest.TestCase):
     
