@@ -91,36 +91,66 @@ void find_head(graphdb::Database const& parent, K& hint)
 }
 
 /**
+ * Manages the end node of a list.
+ */
+template<typename K, typename = schema::is_list_key_t<K>>
+void end(graphdb::Database const& parent,
+         graphdb::mdb_view<K> last,     // point at the last node of a list
+         graphdb::mdb_view<size_t> sz)  // size in bytes of the held buffer
+{
+    assertm(last.begin()->head(), last.begin()->head());
+    assertm(*(sz.begin()), *(sz.begin()));
+
+    int rc;
+    typename schema::list_end_t end = {last.begin()->tail() + 1,
+                                       *(sz.begin())};
+    assertm(end.length() && end.bytes(), *(last.begin()), end);
+
+    K iter = {last.begin()->head(), schema::LIST_TAIL_MAX};
+
+    mdb_view<K> iter_v(&iter, 1);
+    mdb_view<typename schema::list_end_t::value_type> end_v{end.data(), end.size()};
+
+    assertm(MDB_SUCCESS == (rc = parent.put(iter_v, end_v, flags::put::DEFAULT)), rc, iter);
+}
+
+template<typename K>
+void end(graphdb::Database const& parent, K& last, size_t sz)
+{
+    graphdb::mdb_view<K> last_v(&last, 1);
+    graphdb::mdb_view<size_t> sz_v(&sz, 1);
+    end(parent, last_v, sz_v);
+}
+
+/**
  * Through the iter returns the length of the list, through sz the total size
  * of the stored buffer.
  */
 template<typename K, typename = schema::is_list_key_t<K>>
 void size(graphdb::Database const& parent, graphdb::mdb_view<K> iter, mdb_view<size_t> sz)
 {
-    int rc = 0;
-    *(sz.begin()) = 0;
-
     assertm(0 != iter.begin()->head(), iter.begin()->head());
 
-    //§ FIXME: look for <HEAD,LIST_TAIL_MAX>, assert if it does not exist
-    //§ FIXME: return num of pages and size from the metadata
+    int rc = 0;
 
+    iter.begin()->tail() = schema::LIST_TAIL_MAX;
+    mdb_view<schema::list_end_t> end_v;
+
+    rc = parent.get(iter, end_v);
+    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, *(iter.begin()));
+
+    if(MDB_SUCCESS == rc)
     {
-        Cursor cursor(parent.txn_, parent);
-        mdb_view<K> iter_c;
-        mdb_view<uint8_t> iter_v;
+        assertm(end_v.begin()->length() && end_v.begin()->bytes(), *(iter.begin()), *(end_v.begin()));
 
-        for(typename K::value_type i = 0; i < schema::LIST_TAIL_MAX; i++)
-        {
-            iter.begin()->tail() = i;
-            iter_c = iter;
-            rc = cursor.get(iter_c, iter_v, MDB_cursor_op::MDB_SET);
-            if(MDB_NOTFOUND == rc) break;
-            if(iter.begin()->head() != iter_c.begin()->head()) break;
-            *(sz.begin()) += iter_v.size();
-        }
+        iter.begin()->tail() = end_v.begin()->length();
+        *(sz.begin()) = end_v.begin()->bytes();
     }
-
+    else
+    {
+        iter.begin()->tail() = 0;
+        *(sz.begin()) = 0;
+    }
 }
 
 template<typename K>
@@ -132,7 +162,8 @@ void size(graphdb::Database const& parent, K& iter, size_t& sz)
 }
 
 /**
- * Removes a linked list from the DB, starting at the given node.
+ * Removes a linked list from the DB, including its end node, starting at the
+ * given node.
  */
 template<typename K, typename = schema::is_list_key_t<K>>
 void clear(graphdb::Database const& parent, graphdb::mdb_view<K> head)
@@ -152,6 +183,9 @@ void clear(graphdb::Database const& parent, graphdb::mdb_view<K> head)
             break;
     }
 
+    iter.tail() = schema::LIST_TAIL_MAX;
+    rc = parent.remove(iter_k);
+    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, iter);
 }
 
 template<typename K>
@@ -192,6 +226,10 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
     // old list
     iter.tail() += 1;
     clear(parent, iter);
+
+    // update the end node
+    iter.tail() -= 1;  // point to the last node
+    end(parent, iter, value.size() * sizeof(V));
 
 }
 
@@ -308,10 +346,22 @@ void expand(graphdb::Database const& parent, graphdb::mdb_view<K> node, graphdb:
             assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
             if(MDB_NOTFOUND == rc || iter_k.begin()->head() != node.begin()->head())
             {
+                iter = {node.begin()->head(), i};
                 assertm(MDB_SUCCESS == (rc = parent.put(iter_k, value, flags::put::DEFAULT)), rc);
                 break;
             }
+            if(MDB_SUCCESS == rc)
+            {
+                // It does not make sense to expand a list with values of variable size.
+                // Lists are created due to a) breaking larger buffers into chunks, or
+                // b) having a set of identical sized buffers (ie. pages, or keys).
+                // This function manages (b).
+                assertm(iter_v.size() == value.size(), iter_v.size(), value.size());
+            }
         }
+
+        // Update the list's end node.
+        end(parent, iter, (iter.tail() * value.size() + value.size()) * sizeof(V));
     }
 }
 
@@ -355,6 +405,7 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
     K iter = *(node.begin());
     mdb_view<K> iter_k(&iter, 1);
     mdb_view<uint8_t> iter_v;
+    size_t sz = 0;
 
     for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
     {
@@ -363,6 +414,15 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
         if(iter.tail() == node.begin()->tail())
         {
             assertm(MDB_SUCCESS == rc ,rc);  // key must be in the DB.
+
+            /**
+             * Linked lists are created due to (a) breaking larger buffers into
+             * chunks, or (b) managing sets of values with identical sizes. It
+             * does not make sense to remove a node and shift the rest in the
+             * case of (a). This function manages (b).
+             */
+
+            sz = iter_v.size();
             goto DELETE;
         }
         else if(MDB_NOTFOUND == rc)
@@ -372,6 +432,11 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
 DELETE:
         iter.tail() = i;  // delete the current node
         assertm(MDB_SUCCESS == (rc = parent.remove(iter_k)), rc);
+    }
+    if(sz)  // ie. we removed an element
+    {
+        iter.tail() -= 2;  // point to the last node
+        end(parent, iter, iter.tail() * sz + sz);
     }
 }
 
@@ -535,7 +600,7 @@ namespace bitarray  // Transactions that manage the bitmaps.
     /**
      * Updates the iter with the head of the list. If the cached key and iter
      * point to the same page becomes a noop. The page is loaded into the passed
-     * tensor and accessor.
+     * tensor.
      */
     template<typename K, typename = schema::is_key_t<K>>
     static int load_page(schema::DatabaseSet const& parent,
@@ -558,7 +623,7 @@ namespace bitarray  // Transactions that manage the bitmaps.
         }
 
         rc = parent.list_.get(iter, page);
-        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, /*MDB_NOTFOUND*/}, rc), rc);
 
         if(MDB_SUCCESS == rc)
         {

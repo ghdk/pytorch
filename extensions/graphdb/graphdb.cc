@@ -730,6 +730,11 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        hash = {1,3};
                        assertm(MDB_NOTFOUND == (rc = db.hash_.get(hash, value)), rc);
 
+                       size_t sz = 0;
+                       list::size(db.hash_, hash, sz);
+                       assertm(3 == hash.tail(), hash);
+                       assertm(3 * sizeof(schema::list_key_t) == sz, sz);
+
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
 
@@ -757,8 +762,12 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                            iter = {1,3};
                            assertm(MDB_NOTFOUND == (rc = db.hash_.get(iter, value)), rc);
 
-                           assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
+                           size_t sz = 0;
+                           list::size(db.hash_, iter, sz);
+                           assertm(2 == iter.tail(), iter);
+                           assertm(2 * sizeof(schema::list_key_t) == sz, sz);
                        }
+                       assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
                });
 
@@ -855,6 +864,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                            assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
                            assertm(head == iter.head(), iter.head());
                            assertm(2 == iter.tail(), iter.tail());
+
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
+                           assertm(head == iter.head(), iter.head());
+                           assertm(extensions::graphdb::schema::LIST_TAIL_MAX == iter.tail(), iter.tail());
 
                            assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
                            assertm(head+1 == iter.head(), iter.head());  // moves to the next head

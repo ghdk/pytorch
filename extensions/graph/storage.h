@@ -216,7 +216,7 @@ public:
         auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(index);
 
         iter_t query = {vtx_set_iter_.head(), tail};
-        assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(parent_.vtx_set_, vtx_set_key_, query, vtx_set_key_, vtx_set_iter_, vtx_set_page_)), rc, vtx_set_key_, query);
+        assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(parent, vtx_set_key_, query, vtx_set_key_, vtx_set_iter_, vtx_set_page_)), rc, vtx_set_key_, query);
         ret = bitarray::get(vtx_set_page_, vtx);
 
         return ret;
@@ -224,13 +224,16 @@ public:
 
     bool vertex(feature::index_t index)
     {
+        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
+
         bool ret = false;
 
-        ret = vertex_impl(parent_.vtx_set_, index);
+        ret = vertex_impl(session.vtx_set_, index);
         return ret;
     }
     feature::index_t vertex(feature::index_t index, bool truth)
     {
+        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
 
         int rc = 0;
         feature::index_t ret = index;
@@ -240,9 +243,9 @@ public:
         iter_t iter;
         {
             // calculate the total number of pages and vertices
-            assertm(MDB_SUCCESS == (rc = parent_.vtx_set_.main_.get(vtx_set_key_, iter)), rc);
+            assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(vtx_set_key_, iter)), rc);
 
-            extensions::graphdb::list::size(parent_.vtx_set_.list_, iter, max);
+            extensions::graphdb::list::size(session.vtx_set_.list_, iter, max);
             N = iter.tail();
             max = max * extensions::bitarray::cellsize - 1;
 
@@ -279,7 +282,7 @@ public:
                 if(ret + step <= max && tail != iter.tail())
                 {
                     iter.tail() = tail;
-                    assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(parent_.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_)), rc, vtx_set_key_, iter);
+                    assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(session.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_)), rc, vtx_set_key_, iter);
                 }
                 if(ret + step <= max && !bitarray::get(vtx_set_page_, vtx)) break;
                 if((ret || step) && !((ret + step) % slice))
@@ -302,6 +305,14 @@ public:
             {
                 torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options_);
 
+                /**
+                 * The ADJ MTX is not expanded, it is sparse and pages are
+                 * created when accessed. This allows us to scale as a) large
+                 * transactions cause the DB file to grow significantly and
+                 * raise MDB_MAP_FULL, or b) large transactions raise
+                 * MDB_TXN_FULL or c) the application blocks on IO.
+                 */
+
                 // Expand the adjacency matrix.
                 using key_t = extensions::graphdb::schema::graph_adj_mtx_key_t;
                 using iter_t = extensions::graphdb::schema::list_key_t;
@@ -310,22 +321,22 @@ public:
                 for(size_t vtx = 0; vtx < (N+1) * slice; vtx++)
                 {
                     key_t key = {vtx_set_key_.graph(), vtx};
-                    iter_t iter = {vtx,0};
-                    rc = parent_.adj_mtx_.main_.get(key, iter);
+                    iter_t iter = {0,0};
+                    rc = session.adj_mtx_.main_.get(key, iter);
                     assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
                     if(MDB_SUCCESS == rc)
                     {
                         iter.tail() = N;
-                        extensions::graphdb::list::expand(parent_.adj_mtx_.list_, iter, page);
+                        extensions::graphdb::list::expand(session.adj_mtx_.list_, iter, page);
                     }
                     else if(MDB_NOTFOUND == rc)
                     {
-                        extensions::graphdb::list::find_head(parent_.adj_mtx_.list_, iter);
-                        assertm(MDB_SUCCESS == (rc = parent_.adj_mtx_.main_.put(key, iter, extensions::graphdb::flags::put::DEFAULT)), rc);
+                        extensions::graphdb::list::find_head(session.adj_mtx_.list_, iter);
+                        assertm(MDB_SUCCESS == (rc = session.adj_mtx_.main_.put(key, iter, extensions::graphdb::flags::put::DEFAULT)), rc);
                         for(size_t p = 0; p < (N+1); p++)
                         {
                             iter.tail() = p;
-                            extensions::graphdb::list::expand(parent_.adj_mtx_.list_, iter, page);
+                            extensions::graphdb::list::expand(session.adj_mtx_.list_, iter, page);
                         }
                     }
                 }
@@ -334,14 +345,14 @@ public:
                 bitarray::set(page, ret % slice, truth);
 
                 iter = {vtx_set_iter_.head(), N-1};
-                extensions::graphdb::list::expand(parent_.vtx_set_.list_, iter, page);
+                extensions::graphdb::list::expand(session.vtx_set_.list_, iter, page);
 
             }
             else  // doesn't need expansion
             {
                 bitarray::set(vtx_set_page_, ret % slice, truth);
 
-                assertm(MDB_SUCCESS == (rc = parent_.vtx_set_.list_.put(iter, vtx_set_page_, extensions::graphdb::flags::put::DEFAULT)), rc);
+                assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.put(iter, vtx_set_page_, extensions::graphdb::flags::put::DEFAULT)), rc);
             }
         }
         else  // !truth
@@ -349,15 +360,17 @@ public:
             auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(ret);
 
             iter.tail() = tail;
-            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(parent_.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_)), rc, vtx_set_key_, iter);
+            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(session.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_)), rc, vtx_set_key_, iter);
 
             bitarray::set(vtx_set_page_, vtx, truth);
-            assertm(MDB_SUCCESS == (rc = parent_.vtx_set_.list_.put(iter, vtx_set_page_, extensions::graphdb::flags::put::DEFAULT)), rc);
+            assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.put(iter, vtx_set_page_, extensions::graphdb::flags::put::DEFAULT)), rc);
         }
         return ret;
     }
     bool edge(feature::index_t i, feature::index_t j)
     {
+        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
+
         int rc = 0;
         bool ret = false;
 
@@ -366,7 +379,7 @@ public:
 
             adj_mtx_key_t key = {vtx_set_key_.graph(), i};
             iter_t iter = {adj_mtx_iter_.head(), tail};
-            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(parent_.adj_mtx_, key, iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_)), rc, key, iter);
+            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(session.adj_mtx_, key, iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_)), rc, key, iter);
 
             ret = bitarray::get(adj_mtx_page_, vtx);
         }
@@ -375,36 +388,40 @@ END:
     }
     void edge(feature::index_t i, feature::index_t j, bool truth)
     {
+        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
+
         int rc = 0;
         auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(j);
 
         {
-            rc = vertex_impl(parent_.vtx_set_, i);
+            rc = vertex_impl(session.vtx_set_, i);
             assertm(rc, i);
         }
 
         {
-            rc = vertex_impl(parent_.vtx_set_, j);
+            rc = vertex_impl(session.vtx_set_, j);
             assertm(rc, j);
         }
 
         {
             adj_mtx_key_t key = {vtx_set_key_.graph(), i};
             iter_t iter = {adj_mtx_iter_.head(), tail};
-            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(parent_.adj_mtx_, key, iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_)), rc, key, iter);
+            assertm(MDB_SUCCESS == (rc = extensions::graphdb::bitarray::load_page(session.adj_mtx_, key, iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_)), rc, key, iter);
 
             bitarray::set(adj_mtx_page_, vtx, truth);
-            assertm(MDB_SUCCESS == (rc = parent_.adj_mtx_.list_.put(iter, adj_mtx_page_, extensions::graphdb::flags::put::DEFAULT)), rc, iter.head(), iter.tail());
+            assertm(MDB_SUCCESS == (rc = session.adj_mtx_.list_.put(iter, adj_mtx_page_, extensions::graphdb::flags::put::DEFAULT)), rc, iter.head(), iter.tail());
         }
     }
 
     void vertices(vertices_visitor_t& visitor, size_t start, size_t stop, size_t step)
     {
+        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
+
         feature::index_t slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
         extensions::graphdb::schema::list_key_t iter = {0,0};
 
         size_t sz = 0;
-        extensions::graphdb::feature::visit(parent_.vtx_set_, vtx_set_key_,
+        extensions::graphdb::feature::visit(session.vtx_set_, vtx_set_key_,
                                             [&](auto key, size_t size)
                                             {
                                                 iter = key;
@@ -418,7 +435,7 @@ END:
             auto [tail, cell, map] = extensions::graphdb::bitarray::map_vtx_to_page(start);
             iter.tail() = tail;
             size_t v = map;
-            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(parent_.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
+            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(session.vtx_set_, vtx_set_key_, iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
                 break;
             if(bitarray::get(vtx_set_page_, v))
                 visitor(start);
@@ -431,12 +448,14 @@ END:
     }
     void edges(edges_visitor_t& visitor, size_t start, size_t stop, size_t step)  // start,stop,step refer to a flattened adj mtx
     {
+        graphdb::schema::TransactionNode session{parent_, graphdb::flags::txn::NESTED_RW};
+
         extensions::graphdb::schema::list_key_t vtx_set_iter = {0,0};
         extensions::graphdb::schema::graph_adj_mtx_key_t adj_mtx_key = {vtx_set_key_.graph(),0};
         extensions::graphdb::schema::list_key_t adj_mtx_iter = {0,0};
 
         size_t sz = 0;
-        extensions::graphdb::feature::visit(parent_.vtx_set_, vtx_set_key_,
+        extensions::graphdb::feature::visit(session.vtx_set_, vtx_set_key_,
                                             [&](auto key, size_t size)
                                             {
                                                 vtx_set_iter = key;
@@ -454,14 +473,14 @@ END:
             auto [tailE, cellE, mapE] = extensions::graphdb::bitarray::map_vtx_to_page(e);
 
             vtx_set_iter.tail() = tailV;
-            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(parent_.vtx_set_, vtx_set_key_, vtx_set_iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
+            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(session.vtx_set_, vtx_set_key_, vtx_set_iter, vtx_set_key_, vtx_set_iter_, vtx_set_page_))
                 break;
             if(!bitarray::get(vtx_set_page_, mapV)) goto CONTINUE;
 
             adj_mtx_key.vertex() = v;
             adj_mtx_iter.tail() = tailE;
 
-            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(parent_.adj_mtx_, adj_mtx_key, adj_mtx_iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_))
+            if(MDB_NOTFOUND == extensions::graphdb::bitarray::load_page(session.adj_mtx_, adj_mtx_key, adj_mtx_iter, adj_mtx_key_, adj_mtx_iter_, adj_mtx_page_))
                 break;
             if(bitarray::get(adj_mtx_page_, mapE))
                 visitor(v,e);
@@ -510,7 +529,7 @@ END:
             if(MDB_SUCCESS == rc) goto COMMIT;
 
             extensions::graphdb::list::find_head(child.vtx_set_.list_, hint);
-            assertm(MDB_SUCCESS == (rc = child.vtx_set_.list_.put(hint, page, extensions::graphdb::flags::put::DEFAULT)), rc);
+            extensions::graphdb::list::expand(child.vtx_set_.list_, hint, page);
             assertm(MDB_SUCCESS == (rc = child.vtx_set_.main_.put(iter, hint, extensions::graphdb::flags::put::DEFAULT)), rc);
         }
 
@@ -533,7 +552,7 @@ END:
                 iter.tail() = i;
                 hint = {i,0};
                 extensions::graphdb::list::find_head(child.adj_mtx_.list_, hint);
-                assertm(MDB_SUCCESS == (rc = child.adj_mtx_.list_.put(hint, page, extensions::graphdb::flags::put::DEFAULT)), rc);
+                extensions::graphdb::list::expand(child.adj_mtx_.list_, hint, page);
                 assertm(MDB_SUCCESS == (rc = child.adj_mtx_.main_.put(iter, hint, extensions::graphdb::flags::put::DEFAULT)), rc);
             }
         }

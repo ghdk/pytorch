@@ -13,7 +13,10 @@
  * - One transaction, plus its children, per thread. Preferable one writer,
  *   many readers per process.
  * - One environment per database per process.
- * - Very large transactions raise MDB_TXN_FULL at ~4GiB.
+ * - Large write transactions cause the DB file to grow significantly larger
+ *   than the size of the data. The errors MDB_MAP_FULL or MDB_TXN_FULL suggest
+ *   large write transactions. On memory utilisation see
+ *   `<https://www.symas.com/post/understanding-lmdb-database-file-sizes-and-memory-utilization>`_
  *
  * Larger buffers are split into PAGE_SIZE chunks before they are stored
  * in the DB. Hence we need to associate a single key with multiple data chunks.
@@ -120,6 +123,11 @@
  * tables form linked lists, the only difference being that on hash tables
  * the head of the list is <HASH,0> while on linked lists is <RANDOM,0>.
  *
+ * The readers of the DB need to know in advance the size of the buffer that
+ * they are about to read, so that they can allocate sufficient memory. Linked
+ * lists end with the special node <head, int max> which holds the length of
+ * the list and the size of the buffer that is held.
+ *
  * We can have more than one graphs in the DB, each graph identified by the
  * `GRAPH INDEX`.
  *
@@ -146,8 +154,7 @@ namespace flags
 
     namespace env
     {
-        // NB. we lose the durability from ACID, but we gain speed.
-        constexpr unsigned int DEFAULT = MDB_NOSUBDIR | MDB_NOMETASYNC | MDB_NOSYNC;
+        constexpr unsigned int DEFAULT = MDB_NOSUBDIR;
     }
 
     namespace put
@@ -160,12 +167,7 @@ namespace flags
 namespace schema
 {
 
-/**
- * The DB prefers objects of small size, otherwise the file grows much larger
- * than the size of the data that is stored, see
- * `<https://www.symas.com/post/understanding-lmdb-database-file-sizes-and-memory-utilization>`_
- */
-constexpr int page_size = 256;  // bytes
+constexpr int page_size = 4096;  // bytes
 
 #define T_(t)  t, "H" t, "L" t
 constexpr std::array SCHEMA = {T_("VF"),
@@ -417,14 +419,67 @@ using graph_feature_key_t  = double_key_t;
 using graph_adj_mtx_key_t  = double_key_t;
 using graph_vtx_set_key_t  = single_key_t;
 
+struct list_end_  // use through list_end_t
+{
+public:
+    using value_type = list_key_t::value_type;
+private:
+    /**
+     * [0]: the length of the list
+     * [1]: the length of the list in bytes
+     */
+    std::array<value_type, 2> data_ = {0};
+public:
+
+    constexpr size_t size() { return data_.size(); }
+    constexpr size_t size() const { return const_cast<list_end_*>(this)->size(); }
+
+    value_type* data() noexcept { return data_.data(); }
+    const value_type* data() const noexcept { return const_cast<list_end_*>(this)->data(); }
+
+public:  // accessors
+    value_type& length()
+    {
+        return data_[0];
+    }
+    const value_type& length() const noexcept { return const_cast<list_end_*>(this)->length(); }
+
+    value_type& bytes()
+    {
+        return data_[1];
+    }
+    const value_type& bytes() const noexcept { return const_cast<list_end_*>(this)->bytes(); }
+
+public:
+    list_end_() = default;
+    list_end_(list_end_ const&) = default;
+    list_end_(list_end_&&) = default;
+    list_end_& operator=(list_end_ const&) = default;
+    list_end_& operator=(list_end_&&) = default;
+
+    constexpr list_end_(std::initializer_list<value_type> list)
+    {
+        assertm(list.size() == data_.size(), list.size(), data_.size());
+
+        size_t index = 0;
+        for(auto i : list)
+        {
+            data_[index] = i;
+            index++;
+        }
+    }
+};
+
+using list_end_t = std::enable_if_t<sizeof(list_end_) == 2 * sizeof(typename list_end_::value_type), list_end_>;
+
 using meta_key_t = list_key_t;
 using meta_page_t = meta_key_t::value_type;
 
-// We reserve 0, a) no hash value should be 0, b) linked list head allocations
-// are random, hence collisions on 0 do not matter.
+// We reserve head=0, a) no hash value should be 0, b) linked list head
+// allocations are random, hence collisions on 0 do not matter. The meta link
+// list does not end in a special end node, as the list is hard coded.
 constexpr typename meta_key_t::value_type RESERVED = 0ULL;
 const meta_key_t META_KEY_PAGE = {RESERVED, 0x0ULL};
-//§ FIXME: use LIST_TAIL_MAX to store list metadata <num of pages, size in bytes>
 constexpr auto LIST_TAIL_MAX = std::numeric_limits<typename list_key_t::value_type>::max();
 
 template<typename K>
@@ -447,8 +502,16 @@ using is_feature_key_t = std::enable_if_t<std::is_constructible_v<std::variant<v
                                                                                graph_feature_key_t>,
                                                                   K>, void>;
 
+inline std::ostream& operator<<(std::ostream& strm, list_end_t const& end)
+{
+    std::ostringstream out;
+    for(size_t i = 0; i < end.size(); i++)
+        out << (i ? "," : "") << end.data()[i];
+    return strm << out.str();
+}
+
 template<typename K, typename = is_key_t<K>>
-std::ostream& operator<<(std::ostream &strm, K &key)
+std::ostream& operator<<(std::ostream &strm, K const& key)
 {
     std::ostringstream out;
     for(size_t i = 0; i < key.size(); i++)
