@@ -53,6 +53,16 @@ bool assertlog(Args ...args)
         return {*ret};
     }
 
+#ifdef __cpp_lib_hardware_interference_size
+    using std::hardware_constructive_interference_size;
+    using std::hardware_destructive_interference_size;
+#else
+#pragma message "__cpp_lib_hardware_interference_size not defined, falling back to cache size of 64 bytes."
+    constexpr std::size_t hardware_constructive_interference_size = 64;
+    constexpr std::size_t hardware_destructive_interference_size = 64;
+#endif
+
+    constexpr std::size_t hardware_destructive_interference_size_double = hardware_destructive_interference_size * 2;
     constexpr int page_size = 4096;  // bytes
 
 }  // namespace extensions
