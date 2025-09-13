@@ -91,8 +91,6 @@ class Test(unittest.TestCase):
         env = lmdb.open(filename, subdir=False, readonly=False, create=False, max_dbs=(len(graphdb.test.SCHEMA)))
         VS  = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET].encode())
         VSL = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET_L].encode())
-        AM  = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX].encode())
-        AML = env.open_db(graphdb.test.SCHEMA[graphdb.test.ADJACENCY_MATRIX_L].encode())
         with env.begin(db=VS, write=True) as txn:
             value = txn.get(struct.pack('=Q', graph_i))
             assert 16 == len(value), f"len={len(value)}"
@@ -101,15 +99,6 @@ class Test(unittest.TestCase):
             with env.begin(db=VSL, parent=txn, write=True) as txnc:
                 value = txnc.get(struct.pack('=QQ', head, tail))
                 assert graphdb.PAGE_SIZE == len(value), f"len={len(value)}"
-        with env.begin(db=AM, write=True) as txn:
-            for i in range(graphdb.PAGE_SIZE):
-                value = txn.get(struct.pack('=QQ', graph_i, i))
-                assert 16 == len(value), f"len={len(value)}"
-                head,tail = struct.unpack('=QQ', value)
-                assert 0 != head and 0 == tail, f"head={head}, tail={tail}"
-                with env.begin(db=AML, parent=txn, write=True) as txnc:
-                    value = txnc.get(struct.pack('=QQ', head, tail))
-                    assert graphdb.PAGE_SIZE == len(value), f"len={len(value)}"
 
     @rm_test_dir
     def test_graph_make_graph_db(self):
@@ -194,7 +183,8 @@ class Test(unittest.TestCase):
         adj_mtx_heads = []
         with env.begin(db=AM, write=True) as txn:  # Adjacency Matrix
             with txn.cursor() as crs:
-                total = 2 * graphdb.PAGE_SIZE * bitarray.CELL_SIZE
+                # The adj mtx is expanded only for the vertices of the 1st page
+                total = graphdb.PAGE_SIZE * bitarray.CELL_SIZE
                 adj_mtx = [i for i in iter(crs)]
                 assert total == len(adj_mtx), f"{len(adj_mtx)}"
                 adj_mtx_keys = [struct.unpack('=QQ', key) for key,_ in adj_mtx]
@@ -203,8 +193,9 @@ class Test(unittest.TestCase):
                 assert expected == sorted(adj_mtx_keys), f"{adj_mtx_keys}"
         with env.begin(db=AML, write=True) as txn:  # Adjacency Matrix Linked List
             with txn.cursor() as crs:
-                expected  = [(head,tail) for head,tail in adj_mtx_heads]
-                expected += [(head,   1) for head,_    in adj_mtx_heads]
+                # The adj mtx is expanded only for the vertices of the 1st page,
+                # hence we only have the 1st node of each row of the adj mtx
+                expected  = [(head,0) for head,tail in adj_mtx_heads]
                 expected += [(0,0)]  # the AML's metadata list
                 expected = sorted(expected)
                 pages = [i for i in iter(crs)]
@@ -221,6 +212,7 @@ class Test(unittest.TestCase):
             g = graph.make_graph_db(txn, graph_i)
             for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
                 v = g.vertex(i,True)
+                g.edge(v,v,True)  # force the population of the sparse adj mtx
             v = g.vertex(0,True)  # force expansion
         ctx = mp.get_context('spawn')
         p = ctx.Process(target=self.__class__.impl_graph_vertex_expand, args=(filename, graph_i))
@@ -379,11 +371,24 @@ class Test(unittest.TestCase):
         self.assertEqual((1,2), graphdb.view_list_key(k))
 
     @unittest.skip
-    def test_rw_transactions_large_db(self):
+    @rm_test_dir
+    def test_rw_txns_large_graph(self):
         filename = f"./test.db"
         graph_i = 0xACE
-        for i in range(9999):
+        limit = 20 * 1024 * 1024 * 1024
+        while True:
             with graphdb.TransactionNode(filename) as txn:
-                print('.')
                 g = graph.make_graph_db(txn, graph_i)
-                g.vertex(0, True)
+                v = g.vertex(0, True)
+                g.edge(v,v,True)
+            if Path(filename).stat().st_size >= limit:
+                break
+        with graphdb.TransactionNode(filename) as txn:
+            g = graph.make_graph_db(txn, graph_i)
+            class ctx: pass
+            def callback(vtx):
+                if not hasattr(ctx, 'order'): ctx.order = 0
+                ctx.order += 1
+            g.vertices(callback, 0,0,1)
+            print('order:', ctx.order)
+

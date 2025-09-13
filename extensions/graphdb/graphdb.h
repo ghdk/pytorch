@@ -612,19 +612,40 @@ namespace bitarray  // Transactions that manage the bitmaps.
     {
         int ret = MDB_SUCCESS, rc = 0;
 
-        if(key == key_cached && iter == iter_cached && iter.head())
-            return ret;  // ie. the page is already loaded.
+        if(key == key_cached && iter == iter_cached && 0 != iter.head() && schema::LIST_TAIL_MAX != iter.head())
+            return ret;  // ie. the page has been loaded, or when LIST_TAIL_MAX, an empty page has been returned
 
-        if(key != key_cached || 0 == iter.head())
+        if(key != key_cached || 0 == iter.head() || schema::LIST_TAIL_MAX == iter.head())
         {
-            schema::list_key_t head;
-            assertm(MDB_SUCCESS == (rc = parent.main_.get(key, head)), rc, key);  // get head of list
-            iter.head() = head.head();
+            schema::list_key_t head = {0,0};
+            rc = parent.main_.get(key, head);  // get head of list
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
+            if(MDB_SUCCESS == rc)
+                iter.head() = head.head();
+            else if(MDB_NOTFOUND == rc && key == key_cached && schema::LIST_TAIL_MAX == iter.head())
+            {
+                rc = MDB_SUCCESS;
+                goto END;  // ie. noop, an empty page has already been returned
+            }
+            else if(MDB_NOTFOUND == rc)
+            {
+                std::array<uint8_t, extensions::graphdb::schema::page_size> buff = {0};
+                torch::Tensor blob = torch::from_blob(buff.data(), page.sizes(), page.options());
+                page.copy_(blob);
+                iter.head() = schema::LIST_TAIL_MAX;
+                rc = MDB_SUCCESS;
+                goto END;  // ie. do not attempt to read the page from the DB
+            }
         }
 
+        /**
+         * A NOTFOUND here means that the iter was not in the DB, ie. we have
+         * reached the end of the linked list.
+         */
         rc = parent.list_.get(iter, page);
-        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, /*MDB_NOTFOUND*/}, rc), rc);
+        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
 
+    END:
         if(MDB_SUCCESS == rc)
         {
             key_cached = key;
@@ -633,6 +654,49 @@ namespace bitarray  // Transactions that manage the bitmaps.
 
         ret = rc;
         return ret;
+    }
+
+    template<typename K, typename = schema::is_key_t<K>>
+    static void write_page(schema::DatabaseSet const& vtx_set,
+                           schema::DatabaseSet const& parent,
+                           K key,
+                           schema::list_key_t& iter,
+                           torch::Tensor& page)
+    {
+        int rc = 0;
+
+        schema::list_key_t head = {0,0};
+        rc = parent.main_.get(key, head);  // get head of list
+        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
+        if(MDB_NOTFOUND == rc)
+        {
+            extensions::graphdb::list::find_head(parent.list_, head);
+            assertm(MDB_SUCCESS == (rc = parent.main_.put(key, head, extensions::graphdb::flags::put::DEFAULT)), rc);
+        }
+
+        {
+            /**
+             * The vertex set might have been extended since the last time we
+             * wrote to the adj mtx. Update the end node of this list to follow
+             * the size of the vtx set.
+             */
+
+            schema::graph_vtx_set_key_t vtx_set_key = {key.graph()};
+            graphdb::schema::list_key_t list_iter;
+            graphdb::schema::list_end_t list_end;
+
+            // get the end node of the vtx set
+            assertm(MDB_SUCCESS == (rc = vtx_set.main_.get(vtx_set_key, list_iter)), rc);
+            list_iter.tail() = schema::LIST_TAIL_MAX;
+            assertm(MDB_SUCCESS == (rc = vtx_set.list_.get(list_iter, list_end)), rc);
+
+            // copy the end node to the adj mtx list
+            list_iter.head() = head.head();  // switch to the adj mtx list
+            assertm(MDB_SUCCESS == (rc = parent.list_.put(list_iter, list_end, extensions::graphdb::flags::put::DEFAULT)), rc);
+        }
+
+        iter.head() = head.head();
+        assertm(MDB_SUCCESS == (rc = parent.list_.put(iter, page, extensions::graphdb::flags::put::DEFAULT)), rc, iter);
     }
 }  // namespace bitarray
 
