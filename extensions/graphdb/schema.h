@@ -13,6 +13,7 @@
  * - One transaction, plus its children, per thread. Preferable one writer,
  *   many readers per process.
  * - One environment per database per process.
+ * - Very large transactions raise MDB_TXN_FULL at ~4GiB.
  *
  * Larger buffers are split into PAGE_SIZE chunks before they are stored
  * in the DB. Hence we need to associate a single key with multiple data chunks.
