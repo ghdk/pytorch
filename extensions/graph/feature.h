@@ -7,10 +7,11 @@ namespace extensions { namespace graph { namespace feature
 {
 
 /**
- * There is no type representing vertices or edges. The type index_t
- * inherits different interpretations based on the feature set is used on.
- * Expects that indexes never get invalidated, otherwise all the feature
- * sets that use the same index would need to be updated.
+ * The graph consists of two bitmaps, the vertex set bitmap and the
+ * adjacency matrix. There is no type representing vertices or edges.
+ * The type index_t inherits different meanings based on the feature set
+ * is used on. Expects that indexes never get invalidated, otherwise all
+ * the feature sets that use the same index would need to be updated.
  */
 using index_t = size_t;
 using hash_t = size_t;

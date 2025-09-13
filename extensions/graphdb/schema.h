@@ -2,7 +2,7 @@
 #define EXTENSIONS_GRAPHDB_SCHEMA_H
 
 /**
- * LMDB has the following constraints:
+ * A Graph DB built on LMDB. LMDB has the following constraints:
  *
  * - LMDB keys are limited to 511 bytes, see mdb_env_get_maxkeysize.
  * - A low number of named DBs per file is preferable, see mdb_env_set_maxdbs.
