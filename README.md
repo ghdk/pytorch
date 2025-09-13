@@ -11,6 +11,7 @@ based on the `2.3.1` release of PyTorch.
 - [Graph](#graph)
 - [GraphDB](#graphdb)
 - [Iterators](#iterators)
+- [LLVM plugin](#llvm-plugin)
 - [Mesh](#mesh)
 - [Threadpool](#threadpool)
 - [Build](#build)
@@ -53,6 +54,10 @@ Lives under `/extensions/graphdb`.
 ## Iterators
 
 Lives under `/extensions/iter`.
+
+## LLVM plugin
+
+Lives under `/extensions/llvmast`.
 
 ## Threadpool
 
