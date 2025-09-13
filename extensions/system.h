@@ -17,12 +17,6 @@
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
-#if defined(__clang__)
-#include "execution.h"
-#elif defined(__GNUC__) || defined(__GNUG__)
-#include <execution>
-#endif
-
 #include <concepts>
 #include <atomic>
 #include <torch/extension.h>
