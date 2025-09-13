@@ -117,6 +117,14 @@ namespace extensions { namespace iter
 #endif  // PYDEF
     };
 
+template<typename F>
+constexpr auto generate(F const& f)
+{
+    using ret_t = decltype(f());
+
+    return GeneratedEnumerable<typename ret_t::value_type>(f);
+}
+
 }}  // namespace extensions::iter
 
 #endif  // EXTENSIONS_ITER_GENERATED_ITERATOR_H

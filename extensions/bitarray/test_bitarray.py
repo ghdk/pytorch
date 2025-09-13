@@ -1,15 +1,26 @@
 import unittest
 import torch
+import multiprocessing as mp
+from signal import SIGABRT
+
 from bitarray import bitarray
+
+def SIGABRT_test_bitarray_set_bounds_outside():
+    bitmap = torch.ByteTensor([0,0])
+    bitmap = bitarray.set(bitmap, 16, True)
+
+def SIGABRT_test_bitarray_set_bounds_negative():
+    bitmap = torch.ByteTensor([0])
+    bitmap = bitarray.set(bitmap, -1, True)
 
 class Test(unittest.TestCase):
 
     def test_bitarray_set_bounds_negative(self):
-        bitmap = torch.ByteTensor([0])
-        try:
-            bitmap = bitarray.set(bitmap, -1, True)
-            self.assertTrue(False, "we should not reach this")
-        except TypeError: pass
+        ctx = mp.get_context('spawn')
+        p = ctx.Process(target=SIGABRT_test_bitarray_set_bounds_negative)
+        p.start()
+        p.join()
+        self.assertEqual(SIGABRT, -1 * p.exitcode)
 
     def test_bitarray_set_bounds_lower(self):
         bitmap = torch.ByteTensor([0,0])
@@ -22,11 +33,11 @@ class Test(unittest.TestCase):
         self.assertTrue(torch.equal(bitmap, torch.ByteTensor([0x0, 0x1])))
 
     def test_bitarray_set_bounds_outside(self):
-        bitmap = torch.ByteTensor([0,0])
-        try:
-            bitmap = bitarray.set(bitmap, 16, True)
-            self.assertTrue(False, "we should not reach this")
-        except IndexError: pass
+        ctx = mp.get_context('spawn')
+        p = ctx.Process(target=SIGABRT_test_bitarray_set_bounds_outside)
+        p.start()
+        p.join()
+        self.assertEqual(SIGABRT, -1 * p.exitcode)
 
     def test_bitarray_set(self):
         bitmap = torch.ByteTensor([1])
