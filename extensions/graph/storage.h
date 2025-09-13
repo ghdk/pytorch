@@ -37,7 +37,7 @@ public:
 
             bool needs_expansion = false;
             feature::index_t step = 0;
-            feature::index_t slice = extensions::page_size * extensions::bitarray::cellsize;
+            feature::index_t slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
 
             std::random_device r;
             std::default_random_engine e(r());
@@ -63,7 +63,7 @@ public:
             }
             if(needs_expansion)
             {
-                torch::Tensor vertices = torch::full(vertices_.sizes()[0] + extensions::page_size,
+                torch::Tensor vertices = torch::full(vertices_.sizes()[0] + extensions::graphdb::schema::page_size,
                                                      0,
                                                      vertices_.options());
                 torch::Tensor edges = torch::full({bitarray::size(vertices), vertices.sizes()[0]},
@@ -160,10 +160,10 @@ public:
     {
         auto vopt = torch::TensorOptions().dtype(torch::kUInt8)
                                           .requires_grad(false);
-        vertices_ = torch::zeros(extensions::page_size, vopt);
+        vertices_ = torch::zeros(extensions::graphdb::schema::page_size, vopt);
         auto eopt = torch::TensorOptions().dtype(torch::kUInt8)
                                           .requires_grad(false);
-        edges_    = torch::zeros({extensions::page_size * bitarray::cellsize, extensions::page_size}, eopt);
+        edges_    = torch::zeros({extensions::graphdb::schema::page_size * bitarray::cellsize, extensions::graphdb::schema::page_size}, eopt);
     }
 
 private:
@@ -252,7 +252,7 @@ public:
             assertm(N > 0, N);
         }
 
-        feature::index_t slice = extensions::page_size * extensions::bitarray::cellsize;
+        feature::index_t slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
 
         if(truth)
         {
@@ -300,7 +300,7 @@ public:
             ret = ret + step;  // ie. return ret in relation to max, not the slice.
             if(needs_expansion)
             {
-                torch::Tensor page = torch::zeros(extensions::page_size, options_);
+                torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options_);
 
                 // Expand the adjacency matrix.
                 using key_t = extensions::graphdb::schema::graph_adj_mtx_key_t;
@@ -315,6 +315,7 @@ public:
                     assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
                     if(MDB_SUCCESS == rc)
                     {
+                        iter.tail() = N;
                         extensions::graphdb::list::expand(parent_.adj_mtx_.list_, iter, page);
                     }
                     else if(MDB_NOTFOUND == rc)
@@ -399,7 +400,7 @@ END:
 
     void vertices(vertices_visitor_t& visitor, size_t start, size_t stop, size_t step)
     {
-        feature::index_t slice = extensions::page_size * extensions::bitarray::cellsize;
+        feature::index_t slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
         extensions::graphdb::schema::list_key_t iter = {0,0};
 
         size_t sz = 0;
@@ -503,7 +504,7 @@ END:
 
             iter_t iter = {graph};
             hint_t hint = {0,0};
-            std::array<value_t, extensions::page_size> page = {0};
+            std::array<value_t, extensions::graphdb::schema::page_size> page = {0};
 
             rc = cursor.get(iter, hint, MDB_cursor_op::MDB_SET);
             if(MDB_SUCCESS == rc) goto COMMIT;
@@ -522,12 +523,12 @@ END:
 
             iter_t iter = {graph, 0};
             hint_t hint = {0,0};
-            std::array<value_t, extensions::page_size> page = {0};
+            std::array<value_t, extensions::graphdb::schema::page_size> page = {0};
 
             rc = cursor.get(iter, hint, MDB_cursor_op::MDB_SET);
             if(MDB_SUCCESS == rc) goto COMMIT;
 
-            for(size_t i = 0; i < extensions::page_size * extensions::bitarray::cellsize; i++)
+            for(size_t i = 0; i < extensions::graphdb::schema::page_size * extensions::bitarray::cellsize; i++)
             {
                 iter.tail() = i;
                 hint = {i,0};
@@ -555,10 +556,10 @@ private:
     graphdb::schema::TransactionNode const& parent_;
     torch::TensorOptions options_ = torch::TensorOptions().dtype(torch::kUInt8)
                                                           .requires_grad(false);
-    torch::Tensor vtx_set_page_ = torch::zeros(extensions::page_size, options_);
+    torch::Tensor vtx_set_page_ = torch::zeros(extensions::graphdb::schema::page_size, options_);
     vtx_set_key_t vtx_set_key_;  // holds the graph index
     iter_t vtx_set_iter_;  // points to a page from the bitset of the vertex set
-    torch::Tensor adj_mtx_page_ = torch::zeros(extensions::page_size, options_);
+    torch::Tensor adj_mtx_page_ = torch::zeros(extensions::graphdb::schema::page_size, options_);
     adj_mtx_key_t adj_mtx_key_;  // points to the vertex whose bitset is loaded
     iter_t adj_mtx_iter_;  // points to a page from the bitset of the vertex
 };

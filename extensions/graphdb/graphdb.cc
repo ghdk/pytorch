@@ -17,7 +17,7 @@ extern "C"
 // to this function which is easier to read.
 void PYBIND11_MODULE_IMPL(py::module_ m)
 {
-    m.attr("PAGE_SIZE") = pybind11::int_(extensions::page_size);
+    m.attr("PAGE_SIZE") = pybind11::int_(extensions::graphdb::schema::page_size);
 
     auto c = py::class_<extensions::graphdb::schema::TransactionNode, extensions::ptr_t<extensions::graphdb::schema::TransactionNode>>(m, "TransactionNode");
     m.def("make_transaction_node", +[](std::string filename)
@@ -391,7 +391,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                            schema::list_key_t hint;
                            schema::list_key_t value;
-                           for(typename schema::list_key_t::value_type h = 0; h < extensions::page_size * CHAR_BIT; ++h)
+                           for(typename schema::list_key_t::value_type h = 0; h < extensions::graphdb::schema::page_size * CHAR_BIT; ++h)
                            {
                                if(schema::RESERVED == h) continue;
                                hint.head() = h;
@@ -411,7 +411,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                            mdb_view<schema::list_key_t> hint_v(&value, 1);
 
                            list::find_head(db, hint);
-                           assertm(extensions::page_size * CHAR_BIT <= hint.head(), hint.head(), hint.tail());
+                           assertm(extensions::graphdb::schema::page_size * CHAR_BIT <= hint.head(), hint.head(), hint.tail());
                            assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                        }
 
@@ -480,8 +480,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    using elem_t = uint16_t;
-                   using buff_t = std::array<elem_t, extensions::page_size>;  // == 2 pages
-                   size_t chunk = extensions::page_size / sizeof(elem_t);
+                   using buff_t = std::array<elem_t, extensions::graphdb::schema::page_size>;  // == 2 pages
+                   size_t chunk = extensions::graphdb::schema::page_size / sizeof(elem_t);
 
                    {
                        buff_t buffer{0};
@@ -557,8 +557,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    using elem_t = uint16_t;
-                   using buff_t = std::array<elem_t, extensions::page_size>;  // == 2 pages
-                   size_t chunk = extensions::page_size / sizeof(elem_t);
+                   using buff_t = std::array<elem_t, extensions::graphdb::schema::page_size>;  // == 2 pages
+                   size_t chunk = extensions::graphdb::schema::page_size / sizeof(elem_t);
 
                    {
                        buff_t buffer{0};
@@ -875,8 +875,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
 
                    using elem_t = uint16_t;
-                   using buff_t = std::array<elem_t, extensions::page_size>;  // == 2 pages
-                   size_t chunk = extensions::page_size / sizeof(elem_t);
+                   using buff_t = std::array<elem_t, extensions::graphdb::schema::page_size>;  // == 2 pages
+                   size_t chunk = extensions::graphdb::schema::page_size / sizeof(elem_t);
 
                    {
                        buff_t buffer{0};
@@ -955,8 +955,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                    extensions::graphdb::schema::TransactionNode root{env, extensions::graphdb::flags::txn::WRITE};
 
                    using elem_t = uint8_t;
-                   using buff_t = std::array<elem_t, extensions::page_size>;
-                   size_t chunk = extensions::page_size / sizeof(elem_t);
+                   using buff_t = std::array<elem_t, extensions::graphdb::schema::page_size>;
+                   size_t chunk = extensions::graphdb::schema::page_size / sizeof(elem_t);
 
                    std::string key("buffer");
 

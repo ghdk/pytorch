@@ -31,8 +31,8 @@ constexpr bool directed = true;
  * does not depend on a feature set, but lives here to keep the Graph
  * implementation minimal.
  */
-size_t order(Graph graph);  // #vertices
-size_t size(Graph graph, bool directed);  // #edges
+VISIBLE size_t order(Graph graph);  // #vertices
+VISIBLE size_t size(Graph graph, bool directed);  // #edges
 
 void FEATURE_PYBIND11_MODULE_IMPL(py::module_ m);
 

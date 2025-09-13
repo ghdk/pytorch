@@ -139,7 +139,11 @@ public:
         rc = mdb_env_set_maxdbs(handle_, maxdbs);
         assertm(MDB_SUCCESS == rc, rc);
 
-        const size_t maxsz = 1ULL * 1024 * 1024 * 1024 * 1024;  // 1 TiB
+        std::filesystem::path p = filename;
+        p.remove_filename();
+        const std::filesystem::space_info si = std::filesystem::space(p);
+        const size_t maxsz = si.available * 0.75;
+
         rc = mdb_env_set_mapsize(handle_, maxsz);
         assertm(MDB_SUCCESS == rc, rc);
 

@@ -72,7 +72,6 @@ bool assertlog(const Args& ...args)
 #endif
 
     constexpr std::size_t hardware_destructive_interference_size_double = hardware_destructive_interference_size * 2;
-    constexpr int page_size = 4096;  // bytes
 
     template<typename...>
     struct false_always: std::false_type {};
