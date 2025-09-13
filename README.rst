@@ -15,15 +15,17 @@ brew::
     brew install --with-toolchain llvm
 
 build::
+    git config user.name "Your Name Here"
+    git config user.email your@email.example
 
     git submodule deinit --all
     git submodule sync
     git submodule update --init --recursive --depth=1  --single-branch --jobs 11
     python -m sysconfig | grep symbolic
-    MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
+    CMAKE_POLICY_VERSION_MINIMUM=3.5 MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
       EXT_USE_LLVM_CONFIG=/path/to/llvm\@14/14.0.6/bin/llvm-config
       EXT_USE_LMDB=/path/to/lmdb/0.9.33/
-
+      
       python setup.py  build --build-lib=./build/lib  install
                        build -j11 install test clean
 
@@ -69,7 +71,7 @@ update README.md::
     git fetch upstream main
     git reset --hard upstream/main
     git push -u origin main
-    git checkout e2.3.1 -- README.md
+    git checkout e2.3.1 -- README.md .github/FUNDING.yml
 
 static analysis::
 
