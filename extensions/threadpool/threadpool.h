@@ -5,37 +5,15 @@ namespace extensions { namespace rsse
 {
 
 /**
- * We don't need to map jobs to rings, to require that rings are long enough
- * to hold all pending jobs. If a producer finds a ring to be full, it can
- * move on to the next thread. Also we don't need the producer to remain
- * unblocked, if we cannot find a ring we can loop until we do.
+ * Imitates the GPU parallelism model. The threadpool defines a block of
+ * threads. A kernel is posted on every ring, and executed by every thread.
+ * Each thread passes the thread index to the kernel. A single thread owns the
+ * threadpool. The threads of the treadpool cannot launch new kernels.
  *
- * If we need to implement a hashing function for distributing work to threads,
- * we can post the same function to every ring, and each thread can execute
- * the part specified by the hashing algorithm.
- *
- * What is the shortest ring size required to guarantee
- * that the threads wont get starved?
- *
- * Having t threads, the producer needs to be >=t times faster than each thread,
- * to guarantee that each thread will always have a pending job. Hence if
- * the execution of the producer had real-time guarantees, we would need rings
- * of size 2.
+ * The memory model is also similar to the GPU model. The kernels use a shared
+ * buffer for communication. The owner thread reads the shared buffer to collect
+ * the results.
  */
-
-namespace policy
-{
-/**
- * broadcast: async() posts the same job on every ring.
- * random: async() posts the job to the next, randomly
- * chosen thread with a non-full ring.
- */
-class broadcast{};
-class random{};
-
-inline constexpr broadcast bcasync {};
-inline constexpr random rndasync {};
-}
 
 class Kernel
 {
@@ -44,27 +22,18 @@ public:
     virtual int operator()(size_t) = 0;
 };
 
-/**
- * The size of the ring has the following properties:
- * - Smaller rings result in higher probability that the producer thread will
- * block.
- * - Larger rings result in higher probability that some of the rings will be
- * empty due to the random generator.
- * - Ring sizes should be >2, to lower the probability of threads starving.
- */
 struct alignas(hardware_destructive_interference_size_double) Ring
 {
 public:
     using index_t = uint8_t;
     using func_t = ptr_t<Kernel>;
-    static constexpr size_t ring_size = int((hardware_destructive_interference_size_double - 3 * sizeof(index_t)) / sizeof(func_t));
+    static constexpr size_t ring_size = int((hardware_destructive_interference_size_double - 2 * sizeof(index_t)) / sizeof(func_t));
     using funcset_t = std::array<func_t, ring_size>;
 
 public:
     Ring()
     : consumer_{0}
     , producer_{0}
-    , active_{true}
     , ring_{}
     {}
     Ring(Ring const& other) = delete;
@@ -79,7 +48,6 @@ public:
 public:
     index_t consumer_;
     index_t producer_;
-    index_t active_;
     funcset_t ring_;
 };
 
@@ -90,25 +58,21 @@ class ThreadPool
 public:
     using ringset_t = std::vector<Ring>;
     using threadset_t = std::vector<std::thread>;
-    using distribution_t = std::uniform_int_distribution<size_t>;
 public:
     ThreadPool() noexcept;
     ~ThreadPool();
 public:
-    int async(policy::broadcast, typename Ring::func_t);
-    int async(policy::random, typename Ring::func_t);
+    void launch(typename Ring::func_t);
     void join();
     void wait() const;
     size_t size() const;
 private:
-    static void run(Ring&, size_t);
+    static void run(Ring&, bool&, size_t);
 private:
     ringset_t rings_;
     threadset_t threads_;
-private:
-    std::random_device rnd_dev_;
-    std::default_random_engine rnd_gen_;
-    distribution_t distribution_;
+    std::thread::id owner_;
+    bool joined_;
 
 #ifdef PYDEF
     public:
@@ -119,16 +83,10 @@ private:
 
             c.def(py::init<>());
 
-            c.def("bcasync",
+            c.def("launch",
                   +[](ptr_t<ThreadPool> self, ptr_t<Kernel> f)
                   {
-                        return self->async(policy::bcasync, f);
-                  },
-                  py::call_guard<py::gil_scoped_release>());
-            c.def("rndasync",
-                  +[](ptr_t<ThreadPool> self, ptr_t<Kernel> f)
-                  {
-                        return self->async(policy::rndasync, f);
+                        return self->launch(f);
                   },
                   py::call_guard<py::gil_scoped_release>());
 

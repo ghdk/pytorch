@@ -16,7 +16,6 @@ using namespace extensions::rsse;
 void Ring::push(Ring::func_t f)
 {
     assert(!full());
-    assert(active_);  // catch use after join
     ring_[producer_] = f;
 
     MEMORY_BARRIER();
@@ -34,8 +33,8 @@ void Ring::visit(size_t thread)
     MEMORY_BARRIER();
 
     /**
-     * Advance the consumer after it has ran the functor. As such a call to
-     * wait will block until all functors have ran to completion.
+     * Advance the consumer after it has ran the kernel. As such a call to
+     * wait will block until all kernels have ran to completion.
      */
     consumer_ = (consumer_ + 1) % ring_.size();
 }
@@ -52,15 +51,14 @@ bool Ring::empty() const
 ThreadPool::ThreadPool() noexcept
 : rings_{}
 , threads_{}
-, rnd_dev_{}
-, rnd_gen_(rnd_dev_())
+, owner_{std::this_thread::get_id()}
+, joined_{false}
 {
     size_t concurrency = std::max(1U, std::thread::hardware_concurrency() - 1);  // spawn at least 1 thread
     threads_.resize(concurrency);
     rings_.resize(concurrency);
-    distribution_ = distribution_t(0, concurrency-1);
     for(size_t i = 0; i < threads_.size(); ++i)
-        threads_[i] = std::thread(ThreadPool::run, std::ref(rings_[i]), i);
+        threads_[i] = std::thread(ThreadPool::run, std::ref(rings_[i]), std::ref(joined_), i);
 }
 
 ThreadPool::~ThreadPool()
@@ -70,8 +68,11 @@ ThreadPool::~ThreadPool()
 
 void ThreadPool::join()
 {
-    for(auto& r : rings_)
-        r.active_ = false;
+    /**
+     * It does not wait for the rings to become empty. If we want all kernels
+     * to run before the join, we need to wait explicitly.
+     */
+    joined_ = true;
 
     MEMORY_BARRIER();
 
@@ -82,12 +83,10 @@ void ThreadPool::join()
 
 void ThreadPool::wait() const
 {
+    assert(!joined_);  // catch use after join
     for(auto& r : rings_)
-    {
-        assert(r.active_);  // catch use after join
         while(!r.empty())
             continue;
-    }
 }
 
 size_t ThreadPool::size() const
@@ -95,35 +94,29 @@ size_t ThreadPool::size() const
     return threads_.size();
 }
 
-int ThreadPool::async([[maybe_unused]] policy::broadcast p, typename Ring::func_t f)
+void ThreadPool::launch(typename Ring::func_t f)
 {
+    assert(!joined_);  // catch use after join
+    auto source = std::this_thread::get_id();
+    assertm(source == owner_, source, owner_);
+
+    size_t rotation = 0;
     std::vector<bool> bitset(rings_.size(), false);
     while(true)
     {
-        size_t index = distribution_(rnd_gen_);
-        if(rings_[index].full()) continue;
-        if(bitset[index]) continue;
-        rings_[index].push(f);
-        bitset[index] = true;
+        rotation = (rotation+1) % rings_.size();
+        if(rings_[rotation].full()) continue;
+        if(bitset[rotation]) continue;
+        rings_[rotation].push(f);
+        bitset[rotation] = true;
         if(std::all_of(bitset.begin(), bitset.end(), [](bool v){ return v; }))
             break;
     }
 }
 
-int ThreadPool::async([[maybe_unused]] policy::random p, typename Ring::func_t f)
+void ThreadPool::run(Ring& ring, bool& joined, size_t thread)
 {
-    while(true)
-    {
-        size_t index = distribution_(rnd_gen_);
-        if(rings_[index].full()) continue;
-        rings_[index].push(f);
-        break;
-    }
-}
-
-void ThreadPool::run(Ring& ring, size_t thread)
-{
-    while(ring.active_)
+    while(!joined)
     {
         if(ring.empty()) continue;
         ring.visit(thread);
