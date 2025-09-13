@@ -19,30 +19,12 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 {
     m.attr("PAGE_SIZE") = pybind11::int_(extensions::page_size);
 
-    m.attr("SCHEMA") = py::cast(extensions::graphdb::schema::SCHEMA);
-    m.attr("VERTEX_FEATURE")     = py::cast(extensions::graphdb::schema::VERTEX_FEATURE);
-    m.attr("VERTEX_FEATURE_H")   = py::cast(extensions::graphdb::schema::VERTEX_FEATURE_H);
-    m.attr("VERTEX_FEATURE_L")   = py::cast(extensions::graphdb::schema::VERTEX_FEATURE_L);
-    m.attr("EDGE_FEATURE")       = py::cast(extensions::graphdb::schema::EDGE_FEATURE);
-    m.attr("EDGE_FEATURE_H")     = py::cast(extensions::graphdb::schema::EDGE_FEATURE_H);
-    m.attr("EDGE_FEATURE_L")     = py::cast(extensions::graphdb::schema::EDGE_FEATURE_L);
-    m.attr("GRAPH_FEATURE")      = py::cast(extensions::graphdb::schema::GRAPH_FEATURE);
-    m.attr("GRAPH_FEATURE_H")    = py::cast(extensions::graphdb::schema::GRAPH_FEATURE_H);
-    m.attr("GRAPH_FEATURE_L")    = py::cast(extensions::graphdb::schema::GRAPH_FEATURE_L);
-    m.attr("ADJACENCY_MATRIX")   = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX);
-    m.attr("ADJACENCY_MATRIX_H") = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX_H);
-    m.attr("ADJACENCY_MATRIX_L") = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX_L);
-    m.attr("VERTEX_SET")         = py::cast(extensions::graphdb::schema::VERTEX_SET);
-    m.attr("VERTEX_SET_H")       = py::cast(extensions::graphdb::schema::VERTEX_SET_H);
-    m.attr("VERTEX_SET_L")       = py::cast(extensions::graphdb::schema::VERTEX_SET_L);
-
     auto c = py::class_<extensions::graphdb::schema::TransactionNode, extensions::ptr_t<extensions::graphdb::schema::TransactionNode>>(m, "TransactionNode");
     m.def("make_transaction_node", +[](std::string filename)
           {
             extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
             return std::make_shared<extensions::graphdb::schema::TransactionNode>(std::ref(env), extensions::graphdb::flags::txn::NESTED_RW);
           });
-
 
     /**
      * Since the key_t is formed by the size of the key, in Python we cannot
@@ -81,11 +63,85 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
     m.def("view_graph_vtx_set_key" , +[](extensions::graphdb::schema::single_key_t key){ return std::tuple{key.data()[0]}; });
 
     {
+        auto mf = m.def_submodule("feature", "");
+        using visitor_t = std::function<int(py::bytes)>;
+
+        {
+            auto mv = mf.def_submodule("vertex");
+
+            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn, extensions::graphdb::schema::vertex_feature_key_t key, visitor_t pyfunc)
+                   {
+                        // We wrap the Python function into a lambda that will
+                        // translate the key and size into a bytes object.
+                        auto visitor = [&](extensions::graphdb::schema::list_key_t iter,  size_t sz){
+                            std::string ret(sz, '\0');
+                            extensions::graphdb::list::read(txn->vertex_.list_, iter, ret);
+                            return pyfunc(py::bytes(ret));
+                        };
+
+                        extensions::graphdb::feature::visit(txn->vertex_, key, visitor);
+                   });
+        }
+
+        {
+            auto mv = mf.def_submodule("edge");
+
+            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn, extensions::graphdb::schema::edge_feature_key_t key, visitor_t pyfunc)
+                   {
+                        // We wrap the Python function into a lambda that will
+                        // translate the key and size into a bytes object.
+                        auto visitor = [&](extensions::graphdb::schema::list_key_t iter,  size_t sz){
+                            std::string ret(sz, '\0');
+                            extensions::graphdb::list::read(txn->edge_.list_, iter, ret);
+                            return pyfunc(py::bytes(ret));
+                        };
+
+                        extensions::graphdb::feature::visit(txn->edge_, key, visitor);
+                   });
+        }
+
+        {
+            auto mv = mf.def_submodule("graph");
+
+            mv.def("visit", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> txn, extensions::graphdb::schema::graph_feature_key_t key, visitor_t pyfunc)
+                   {
+                        // We wrap the Python function into a lambda that will
+                        // translate the key and size into a bytes object.
+                        auto visitor = [&](extensions::graphdb::schema::list_key_t iter,  size_t sz){
+                            std::string ret(sz, '\0');
+                            extensions::graphdb::list::read(txn->graph_.list_, iter, ret);
+                            return pyfunc(py::bytes(ret));
+                        };
+
+                        extensions::graphdb::feature::visit(txn->graph_, key, visitor);
+                   });
+        }
+    }
+
+    {
         /**
          * Test submodule
          */
 
         auto mt = m.def_submodule("test", "");
+
+        mt.attr("SCHEMA") = py::cast(extensions::graphdb::schema::SCHEMA);
+        mt.attr("VERTEX_FEATURE")     = py::cast(extensions::graphdb::schema::VERTEX_FEATURE);
+        mt.attr("VERTEX_FEATURE_H")   = py::cast(extensions::graphdb::schema::VERTEX_FEATURE_H);
+        mt.attr("VERTEX_FEATURE_L")   = py::cast(extensions::graphdb::schema::VERTEX_FEATURE_L);
+        mt.attr("EDGE_FEATURE")       = py::cast(extensions::graphdb::schema::EDGE_FEATURE);
+        mt.attr("EDGE_FEATURE_H")     = py::cast(extensions::graphdb::schema::EDGE_FEATURE_H);
+        mt.attr("EDGE_FEATURE_L")     = py::cast(extensions::graphdb::schema::EDGE_FEATURE_L);
+        mt.attr("GRAPH_FEATURE")      = py::cast(extensions::graphdb::schema::GRAPH_FEATURE);
+        mt.attr("GRAPH_FEATURE_H")    = py::cast(extensions::graphdb::schema::GRAPH_FEATURE_H);
+        mt.attr("GRAPH_FEATURE_L")    = py::cast(extensions::graphdb::schema::GRAPH_FEATURE_L);
+        mt.attr("ADJACENCY_MATRIX")   = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX);
+        mt.attr("ADJACENCY_MATRIX_H") = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX_H);
+        mt.attr("ADJACENCY_MATRIX_L") = py::cast(extensions::graphdb::schema::ADJACENCY_MATRIX_L);
+        mt.attr("VERTEX_SET")         = py::cast(extensions::graphdb::schema::VERTEX_SET);
+        mt.attr("VERTEX_SET_H")       = py::cast(extensions::graphdb::schema::VERTEX_SET_H);
+        mt.attr("VERTEX_SET_L")       = py::cast(extensions::graphdb::schema::VERTEX_SET_L);
+
 
         mt.def("test_graphdb_cardinalities",
                +[]{
