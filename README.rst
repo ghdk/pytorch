@@ -15,8 +15,10 @@ build::
     git submodule deinit --all
     git submodule sync
     git submodule update --init --recursive --jobs 11
-    MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0  python setup.py install
-                                                                                                                                                                                                         build -j11 install test clean
+    python -m sysconfig | grep symbolic
+    MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
+      python setup.py  build --build-lib=./build/lib  install
+                       build -j11 install test clean
 
 docker/linux::
     apt-get install apt-file aptitude
