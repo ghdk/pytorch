@@ -68,8 +68,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
     auto c = py::class_<extensions::graph::Graph, extensions::ptr_t<extensions::graph::Graph>>(m, "Graph");
     extensions::graph::Graph::def(c);
     m.def("make_graph", static_cast<extensions::graph::Graph(*)(void)>(&extensions::graph::Graph::make_graph));
-    m.def("make_graph_db", +[](extensions::ptr_t<extensions::graphdb::schema::TransactionNode> parent, extensions::graph::feature::index_t graph)
-          { return extensions::graph::Graph::make_graph(*parent, graph); });
+    m.def("make_graph_db", +[](extensions::graphdb::schema::TransactionNode& parent, extensions::graph::feature::index_t graph)
+          { return extensions::graph::Graph::make_graph(parent, graph); });
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
