@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title></title>
+<meta name="generator" content="md2html" />
+<meta charset="UTF-8" />
+</head>
+<body>
+<h1>A study of source code generation</h1>
+<p>The aim of this <a href="https://github.com/ghdk/pytorch">project</a> is to study
+the problem of generating source code through AI algorithms.
+The project builds on <a href="https://pytorch.org">PyTorch</a>. The current development
+branch is <a href="https://github.com/ghdk/pytorch/tree/e2.8.0">e2.8.0</a> which is
+based on the <code>v2.8.0</code> release of PyTorch.</p>
+<!-- toc -->
+<ul>
+<li><a href="#bitarray">Bitarray</a></li>
+<li><a href="#constraints">Constraints</a></li>
+<li><a href="#graph">Graph</a></li>
+<li><a href="#graphdb">GraphDB</a></li>
+<li><a href="#iterators">Iterators</a></li>
+<li><a href="#llvm-plugin">LLVM plugin</a></li>
+<li><a href="#theory">Theory</a></li>
+<li><a href="#build">Build</a></li>
+</ul>
+<!-- tocstop -->
+<h2>Bitarray</h2>
+<p>A bitarray implementation built on Tensors.</p>
+<p>Lives under <code>/extensions/bitarray</code>.</p>
+<h2>Constraints</h2>
+<p>A constraints solver built on Tensors. It implements conflict directed
+backjumping and forward checking, see <a href="#bibliography">Prosser93</a>. Instead of
+implementing a list of open nodes or recursion, it implements a state as an
+array holding for each variable of the state, (ie. depth of the search tree),
+the index from the domain of the variable included in the current path.
+Similarly instead of lists it implements a 1D Tensor for CBJ, and a 2D Tensor
+for FC.</p>
+<p>Lives under <code>/extensions/constraints</code>.</p>
+<h2>Graph</h2>
+<p>A graph implemented as two bitmaps, the vertex set and the adjacency matrix. The
+vertex set defines the vertex indexes that are present in the graph. Information
+about vertices and edges are kept on external containers, linked by the indexes.</p>
+<p>Lives under <code>/extensions/graph</code>.</p>
+<h2>GraphDB</h2>
+<p>A graph DB implemented on top of LMDB. The schema of the DB is documented in
+<code>/extensions/graphdb/schema.h</code>.</p>
+<p>Lives under <code>/extensions/graphdb</code>.</p>
+<h2>Iterators</h2>
+<p>Lives under <code>/extensions/iter</code>.</p>
+<h2>LLVM plugin</h2>
+<p>Lives under <code>/extensions/llvmast</code>.</p>
+<h2>Theory</h2>
+<p>The study of algorithms, mostly in the areas of AI, Graph, Optimisation, and
+Parallelism.</p>
+<p>Lives under <code>/extensions/theory</code>.</p>
+<h2>Build</h2>
+<p>The extensions live under the <code>/extensions</code> directory. A dedicated <code>setup.py</code>
+script is used to build the extensions, examples</p>
+<pre><code class="language-bash"># Linux
+                              CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0 EXT_USE_LLVM_CONFIG=/usr/bin/llvm-config                                                          python setup.py  build --build-lib=./build/lib  install
+
+# MacOS
+MACOSX_DEPLOYMENT_TARGET=14.5 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=1 EXT_USE_LLVM_CONFIG=/root/to/llvm\@14/14.0.6/bin/llvm-config  EXT_USE_LMDB=/root/to/lmdb/0.9.33/  python setup.py install
+</code></pre>
+<h2>Prepare</h2>
+<p>In order to prepare the data we run</p>
+<pre><code class="language-bash"># Linux, MacOS
+                              CC=clang CXX=clang++ EXT_USE_WORKSPACE=/mnt/macos/pytorch  python /mnt/macos/pytorch/extensions/llvmast/setup.py  prepare
+</code></pre>
+<p>The flags for LLVM are read from <code>extensions/llvmast/cached_cflags.py</code> which is
+generated during the build step.</p>
+<h2>Bibliography</h2>
+<ul>
+<li>P. Prosser. Hybrid Algorithms for the Constraint Satisfaction Problem.
+Computational Intelligence. 1993.</li>
+</ul>
+</body>
+</html>
