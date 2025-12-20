@@ -490,7 +490,7 @@ END:
     , adj_mtx_key_{}
     , adj_mtx_iter_{}
     {
-        extensions::graphdb::graph::init(parent, graph);
+        extensions::graphdb::graph::init(parent, vtx_set_key_);
     }
 
 private:

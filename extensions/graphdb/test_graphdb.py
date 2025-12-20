@@ -10,8 +10,8 @@ import shutil
 import lmdb
 import random
 import traceback
-from graphdb import graphdb
 from bitarray import bitarray
+from graphdb import graphdb
 from graph import graph
 
 RAMFS = os.environ.get("RAMFS", "")
@@ -85,7 +85,7 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_graphdb_transaction_api(self):
-        graphdb.test.test_graphdb_transaction_api()        
+        graphdb.test.test_graphdb_transaction_api()
 
     @classmethod
     def impl_graph_make_graph_db(cls, filename, graph_i):
@@ -406,3 +406,6 @@ class Test(unittest.TestCase):
             g.vertices(callback, 0,0,1)
             print('order:', ctx.order)
 
+    @rm_test_dir
+    def test_graphdb_is_available(self):
+        graphdb.test.test_graphdb_is_available()

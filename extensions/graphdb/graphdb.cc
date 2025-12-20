@@ -1221,6 +1221,36 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0 == value[0], value[0]);
                    }
                });
+
+        mt.def("test_graphdb_is_available",
+            +[]{
+                std::string filename = "./test.db";
+                int rc = 0;
+
+                extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+                extensions::graphdb::schema::TransactionNode root{env, extensions::graphdb::flags::txn::WRITE};
+
+                extensions::graphdb::schema::graph_vtx_set_key_t graph = {24};
+                extensions::graphdb::graph::init(root, graph);
+
+                size_t vertices_in_page = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
+
+                bool index_confirmed = false;
+                bool vertex_confirmed = false;
+
+                for(size_t i = 0; i < vertices_in_page; i++)
+                {
+                    auto index = extensions::graphdb::graph::is_available(root, graph, 0);  // 0 to force collisions and randomness
+                    extensions::graphdb::graph::vertex(root, graph, index, true);
+                    index_confirmed = (index >= vertices_in_page);  // vtx set expanded
+                    vertex_confirmed = extensions::graphdb::graph::vertex(root, graph, index);
+                    if(index_confirmed) break;
+                }
+
+                assert(index_confirmed);
+                assert(vertex_confirmed);
+            }
+        );
     }
 }
 
