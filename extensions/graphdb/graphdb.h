@@ -987,7 +987,9 @@ namespace graph  // Transactions that manage the graph.
         return;
     }
 
-    static schema::list_key_t::value_type is_available(schema::TransactionNode const& parent, schema::graph_vtx_set_key_t graph, schema::list_key_t::value_type hint)
+    static schema::list_key_t::value_type is_available(schema::TransactionNode const& parent,
+                                                       schema::graph_vtx_set_key_t graph,
+                                                       schema::list_key_t::value_type hint)
     {
         /*
          * Query the DB for an available vertex index.
@@ -1084,7 +1086,9 @@ namespace graph  // Transactions that manage the graph.
         return ret;
     }
 
-    static bool vertex(schema::TransactionNode const& parent, schema::graph_vtx_set_key_t graph, schema::graph_vtx_set_key_t::value_type vertex)
+    static bool vertex(schema::TransactionNode const& parent,
+                       schema::graph_vtx_set_key_t graph,
+                       schema::graph_vtx_set_key_t::value_type vertex)
     {
         schema::TransactionNode session{parent, graphdb::flags::txn::NESTED_RW};
 
@@ -1103,7 +1107,10 @@ namespace graph  // Transactions that manage the graph.
         return extensions::bitarray::get(page, vtx);
     }
 
-    static void vertex(schema::TransactionNode const& parent, schema::graph_vtx_set_key_t graph, schema::graph_vtx_set_key_t::value_type vertex, bool truth)
+    static void vertex(schema::TransactionNode const& parent,
+                       schema::graph_vtx_set_key_t graph,
+                       schema::graph_vtx_set_key_t::value_type vertex,
+                       bool truth)
     {
         schema::TransactionNode session{parent, graphdb::flags::txn::NESTED_RW};
 
@@ -1122,7 +1129,99 @@ namespace graph  // Transactions that manage the graph.
         extensions::bitarray::set(page, vtx, truth);
         assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.put(iter, page, extensions::graphdb::flags::put::DEFAULT)), rc, iter);
     }
-    
+
+    static bool edge(schema::TransactionNode const& parent,
+                     schema::graph_vtx_set_key_t graph,
+                     schema::graph_vtx_set_key_t::value_type vertex_i,
+                     schema::graph_vtx_set_key_t::value_type vertex_j)
+    {
+        schema::TransactionNode session{parent, graphdb::flags::txn::NESTED_RW};
+        auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(vertex_j);
+
+        torch::TensorOptions options = torch::TensorOptions().dtype(torch::kUInt8)
+                                                             .requires_grad(false);
+        torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
+
+        assert(graph::vertex(session, graph, vertex_i));
+        assert(graph::vertex(session, graph, vertex_j));
+
+        int rc = 0;
+
+        graphdb::schema::graph_adj_mtx_key_t key = {graph.graph(), vertex_i};
+        extensions::graphdb::schema::list_key_t iter;
+
+        rc = session.adj_mtx_.main_.get(key, iter);
+        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
+        if(MDB_SUCCESS == rc)
+        {
+            iter.tail() = tail;
+            rc = session.adj_mtx_.list_.get(iter, page);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+        }
+        return extensions::bitarray::get(page, vtx);
+    }
+
+    static void edge(schema::TransactionNode const& parent,
+                     schema::graph_vtx_set_key_t graph,
+                     schema::graph_vtx_set_key_t::value_type vertex_i,
+                     schema::graph_vtx_set_key_t::value_type vertex_j,
+                     bool truth)
+    {
+        schema::TransactionNode session{parent, graphdb::flags::txn::NESTED_RW};
+        auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(vertex_j);
+
+        torch::TensorOptions options = torch::TensorOptions().dtype(torch::kUInt8)
+                                                             .requires_grad(false);
+        torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
+
+        assert(graph::vertex(session, graph, vertex_i));
+        assert(graph::vertex(session, graph, vertex_j));
+
+        int rc = 0;
+
+        graphdb::schema::graph_adj_mtx_key_t key = {graph.graph(), vertex_i};
+        extensions::graphdb::schema::list_key_t iter;
+
+        rc = session.adj_mtx_.main_.get(key, iter);
+        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+        if(MDB_NOTFOUND == rc)
+        {
+            extensions::graphdb::list::head::find(session.adj_mtx_.list_, iter);
+            extensions::graphdb::refcount::increase(session.adj_mtx_, key, iter);
+            if(tail)  // initialise the head of the list
+                assertm(MDB_SUCCESS == (rc = session.adj_mtx_.list_.put(iter, page, extensions::graphdb::flags::put::DEFAULT)), rc, iter);
+        }
+
+
+        iter.tail() = tail;
+        rc = session.adj_mtx_.list_.get(iter, page);
+        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+        extensions::bitarray::set(page, vtx, truth);
+        assertm(MDB_SUCCESS == (rc = session.adj_mtx_.list_.put(iter, page, extensions::graphdb::flags::put::DEFAULT)), rc, iter);
+
+        {
+            /**
+             * The vertex set might have been expanded since the last time we
+             * wrote to the adj mtx. Update the end node of this list to follow
+             * the size of the vtx set.
+             */
+
+            graphdb::schema::list_key_t head;
+            graphdb::schema::list_end_t end;
+
+            // get the end node of the vtx set
+            assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph, head)), rc);
+            extensions::graphdb::list::end::read(session.vtx_set_.list_, head, end);
+
+            // There should only be one reference to the vtx set, and similarly
+            // to each row of the adj mtx.
+            assertm(1 == end.refcount(), end.refcount());
+
+            // copy the end node to the adj mtx list
+            head = {iter.head(), 0};  // switch to the adj mtx list
+            extensions::graphdb::list::end::write(session.adj_mtx_.list_, head, end);
+        }
+    }
 }  // namespace graph
 
 namespace stat
