@@ -1,8 +1,8 @@
 # Extensions for PyTorch
 
 This repo holds a number of extensions for PyTorch. The current development
-branch is [e2.3.1](https://github.com/ghdk/pytorch.priv/tree/e2.3.1) which is
-based on the `2.3.1` release of PyTorch.
+branch is [e2.8.0](https://github.com/ghdk/pytorch/tree/e2.8.0) which is
+based on the `v2.8.0` release of PyTorch.
 
 <!-- toc -->
 

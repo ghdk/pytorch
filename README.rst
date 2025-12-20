@@ -20,21 +20,21 @@ build::
 
     git submodule deinit --all
     git submodule sync
-    git submodule update --init --recursive --depth=1  --single-branch --jobs 11
+    git submodule update --init --recursive --recommend-shallow --jobs 11
     python -m sysconfig | grep symbolic
-    CMAKE_POLICY_VERSION_MINIMUM=3.5 MACOSX_DEPLOYMENT_TARGET=13.2 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
-      EXT_USE_LLVM_CONFIG=/path/to/llvm\@14/14.0.6/bin/llvm-config
-      EXT_USE_LMDB=/path/to/lmdb/0.9.33/
-      
-      python setup.py  build --build-lib=./build/lib  install
-                       build -j11 install test clean
+
+    # MACOSX_DEPLOYMENT_TARGET=14.8 CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=1
+      EXT_USE_LLVM_CONFIG=/path/to/llvm\@14/14.0.6/bin/llvm-config  EXT_USE_LMDB=/path/to/lmdb/0.9.33/  python setup.py install
+
+    #                               CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
+      EXT_USE_LLVM_CONFIG=/usr/bin/llvm-config python setup.py  build --build-lib=./build/lib  install
 
 docker/linux::
     export DOCKER_DEFAULT_PLATFORM=linux/amd64
     apt-get install apt-file locales emacs-nox wget
     emacs -nw /etc/locale.gen, locale-gen
-    aptitude install python3 python3-venv python3-dev gcc g++ gdb git cmake valgrind
-    aptitude install clang llvm liblmdb-dev libclang-14-dev libpolly-14-dev
+    apt-get install python3 python3-venv python3-dev gcc g++ gdb git cmake valgrind
+    apt-get install clang llvm liblmdb-dev libclang-14-dev libpolly-14-dev
 
 unittest::
 
@@ -58,12 +58,13 @@ update::
 
     git checkout --track origin/viable/strict
     git fetch --tags upstream viable/strict
-    git merge upstream/viable/strict
-    git checkout v1.13.0 -b e1.13.0
-    git rev-list --reverse --no-merges <ancestor of old branch>..<head of old branch> | git cherry-pick --stdin -X ours
-    git diff <old branch>:./extensions <new branch>:./extensions
-
-..  when asked for empty commits do -skip
+    git reset --hard upstream/viable/strict
+    git branch e2.8.0 v2.8.0
+    git branch e2.3.1_ e2.3.1
+    git rebase --interactive e2.8.0 e2.3.1_
+    git checkout e2.8.0
+    git merge --ff-only e2.3.1_
+    git branch --delete --force e2.3.1_
 
 update README.md::
 
