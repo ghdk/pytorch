@@ -29,6 +29,8 @@ build::
     #                               CC=clang CXX=clang++ SETUPTOOLS_EXT_SUFFIX=.so  DEBUG=1 USE_DISTRIBUTED=0 USE_MKLDNN=0 USE_CUDA=0 USE_ROCM=0 BUILD_TEST=0 USE_FBGEMM=0 USE_NNPACK=0 USE_QNNPACK=0 USE_XNNPACK=0 USE_MPS=0
       EXT_USE_LLVM_CONFIG=/usr/bin/llvm-config python setup.py  build --build-lib=./build/lib  install
 
+    #                               CC=clang CXX=clang++ EXT_USE_WORKSPACE=/path/to/workspace  python /path/to/pytorch/extensions/llvmast/setup.py  prepare
+
 docker/linux::
     export DOCKER_DEFAULT_PLATFORM=linux/amd64
     apt-get install apt-file locales emacs-nox wget
@@ -100,18 +102,12 @@ ramfs::
 
 libstdc++-v3::
 
-    mkdir gcc
-    git init
-    git remote add origin git://gcc.gnu.org/git/gcc.git
+    git clone --depth=1 --single-branch --no-checkout <repo>
     git config core.sparseCheckout true
-    git pull --depth=1 origin master
 
     # cat .git/info/sparse-checkout
     libstdc++-v3
-
-    or
-
-    git clone --depth=1 --single-branch <repo>
+    libgcc
 
 Codebase
 ========
