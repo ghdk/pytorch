@@ -162,6 +162,63 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
     }  // submodule feature
 
     {
+        auto mg = m.def_submodule("graph", "");
+        mg.def("init", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                           extensions::graphdb::schema::graph_vtx_set_key_t graph)
+            {
+                extensions::graphdb::graph::init(txn->txn(), graph);
+            });
+        mg.def("is_available", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                                extensions::graphdb::schema::graph_vtx_set_key_t graph,
+                                extensions::graphdb::schema::list_key_t::value_type hint) -> extensions::graphdb::schema::list_key_t::value_type
+            {
+                return extensions::graphdb::graph::is_available(txn->txn(), graph, hint);
+            });
+        mg.def("is_vertex", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                                extensions::graphdb::schema::graph_vtx_set_key_t graph,
+                                extensions::graphdb::schema::graph_vtx_set_key_t::value_type vertex) -> bool
+            {
+                return extensions::graphdb::graph::vertex(txn->txn(), graph, vertex);
+            });
+        mg.def("vertex", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                             extensions::graphdb::schema::graph_vtx_set_key_t graph,
+                             extensions::graphdb::schema::graph_vtx_set_key_t::value_type vertex,
+                             bool truth)
+            {
+                extensions::graphdb::graph::vertex(txn->txn(), graph, vertex, truth);
+            });
+        mg.def("is_edge", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                              extensions::graphdb::schema::graph_vtx_set_key_t graph,
+                              extensions::graphdb::schema::graph_vtx_set_key_t::value_type vertex_i,
+                              extensions::graphdb::schema::graph_vtx_set_key_t::value_type vertex_j) -> bool
+            {
+                return extensions::graphdb::graph::edge(txn->txn(), graph, vertex_i, vertex_j);
+            });
+        mg.def("edge", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                           extensions::graphdb::schema::graph_vtx_set_key_t graph,
+                           extensions::graphdb::schema::graph_vtx_set_key_t::value_type vertex_i,
+                           extensions::graphdb::schema::graph_vtx_set_key_t::value_type vertex_j,
+                           bool truth)
+            {
+                extensions::graphdb::graph::edge(txn->txn(), graph, vertex_i, vertex_j, truth);
+            });
+        mg.def("vertices", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                               extensions::graphdb::schema::graph_vtx_set_key_t graph,
+                               extensions::graphdb::graph::vertices_visitor_t visitor)
+            {
+                extensions::graphdb::graph::vertices(txn->txn(), graph, visitor);
+            },
+            py::call_guard<py::gil_scoped_release>());
+        mg.def("edges", +[](extensions::ptr_t<extensions::graphdb::schema::PyTransactionNode> txn,
+                            extensions::graphdb::schema::graph_vtx_set_key_t graph,
+                            extensions::graphdb::graph::edges_visitor_t visitor)
+            {
+                extensions::graphdb::graph::edges(txn->txn(), graph, visitor);
+            },
+            py::call_guard<py::gil_scoped_release>());
+    }  // submodule graph
+
+    {
         /**
          * Test submodule
          */

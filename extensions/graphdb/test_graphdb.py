@@ -93,7 +93,7 @@ class Test(unittest.TestCase):
         VS  = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET].encode())
         VSL = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET_L].encode())
         with env.begin(db=VS, write=True) as txn:
-            value = txn.get(struct.pack('=Q', graph_i))
+            value = txn.get(struct.pack('=Q', graph_i[0]))
             assert 16 == len(value), f"len={len(value)}"
             head,tail = struct.unpack('=QQ', value)
             assert 0 != head and 0 == tail, f"head={head}, tail={tail}"
@@ -104,11 +104,11 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graph_make_graph_db(self):
         filename = f"./test.db"
-        graph_i = 0xACE
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
+            graphdb.graph.init(txn, graph_i)
         ctx = mp.get_context('spawn')
-        p = ctx.Process(target=self.__class__.impl_graph_make_graph_db, args=(filename, graph_i))
+        p = ctx.Process(target=self.__class__.impl_graph_make_graph_db, args=(filename, graphdb.view_graph_vtx_set_key(graph_i)))
         p.start()
         p.join()
         self.assertEqual(0, -1 * p.exitcode)
@@ -119,7 +119,7 @@ class Test(unittest.TestCase):
         VS  = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET].encode())
         VSL = env.open_db(graphdb.test.SCHEMA[graphdb.test.VERTEX_SET_L].encode())
         with env.begin(db=VS, write=True) as txn:
-            value = txn.get(struct.pack('=Q', graph_i))
+            value = txn.get(struct.pack('=Q', graph_i[0]))
             assert 16 == len(value), f"len={len(value)}"
             head,tail = struct.unpack('=QQ', value)
             assert 0 != head and 0 == tail, f"head={head}, tail={tail}"
@@ -132,13 +132,13 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graph_vertex_add(self):
         filename = f"./test.db"
-        graph_i = 0xACE
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
-            v = g.vertex(0,True)
-            v = g.vertex(graphdb.PAGE_SIZE * bitarray.CELL_SIZE - 1,True)  # the last vertex of the page
+            graphdb.graph.init(txn, graph_i)
+            graphdb.graph.vertex(txn, graph_i, 0, True)
+            graphdb.graph.vertex(txn, graph_i, graphdb.PAGE_SIZE * bitarray.CELL_SIZE - 1, True)  # the last vertex of the page
         ctx = mp.get_context('spawn')
-        p = ctx.Process(target=self.__class__.impl_graph_vertex_add, args=(filename, graph_i))
+        p = ctx.Process(target=self.__class__.impl_graph_vertex_add, args=(filename, graphdb.view_graph_vtx_set_key(graph_i)))
         p.start()
         p.join()
         self.assertEqual(0, -1 * p.exitcode)
@@ -157,7 +157,7 @@ class Test(unittest.TestCase):
                 assert 1 == len(vtx_set)
                 vtx_set_key = vtx_set[0][0]
                 vtx_set_key, *_ = struct.unpack('=Q', vtx_set_key)
-                assert graph_i == vtx_set_key, f"{graph_i} != {vtx_set_key}"
+                assert graph_i[0] == vtx_set_key, f"{graph_i} != {vtx_set_key}"
                 vtx_set_value = vtx_set[0][1]
                 head, tail = struct.unpack('=QQ', vtx_set_value)
                 assert 0 != head and 0 == tail, f"head={head}, tail={tail}"
@@ -192,7 +192,7 @@ class Test(unittest.TestCase):
                 assert total == len(adj_mtx), f"{len(adj_mtx)}"
                 adj_mtx_keys = [struct.unpack('=QQ', key) for key,_ in adj_mtx]
                 adj_mtx_heads = [struct.unpack('=QQ', head) for _,head in adj_mtx]                
-                expected = [(graph_i, vtx) for vtx in range(total)]
+                expected = [(graph_i[0], vtx) for vtx in range(total)]
                 assert expected == sorted(adj_mtx_keys), f"{adj_mtx_keys}"
         with env.begin(db=AML, write=True) as txn:  # Adjacency Matrix Linked List
             with txn.cursor() as crs:
@@ -210,15 +210,17 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graph_vertex_expand(self):
         filename = f"./test.db"
-        graph_i = 0xACE
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
+            graphdb.graph.init(txn, graph_i)
             for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
-                v = g.vertex(i,True)
-                g.edge(v,v,True)  # force the population of the sparse adj mtx
-            v = g.vertex(0,True)  # force expansion
+                v = graphdb.graph.is_available(txn, graph_i, i)
+                graphdb.graph.vertex(txn, graph_i, v, True)
+                graphdb.graph.edge(txn, graph_i, v, v, True)  # force the population of the sparse adj mtx
+            v = graphdb.graph.is_available(txn, graph_i, 0)
+            graphdb.graph.vertex(txn, graph_i, v, True)
         ctx = mp.get_context('spawn')
-        p = ctx.Process(target=self.__class__.impl_graph_vertex_expand, args=(filename, graph_i))
+        p = ctx.Process(target=self.__class__.impl_graph_vertex_expand, args=(filename, graphdb.view_graph_vtx_set_key(graph_i)))
         p.start()
         p.join()
         self.assertEqual(0, -1 * p.exitcode)
@@ -239,7 +241,7 @@ class Test(unittest.TestCase):
                 assert 1 == len(vtx_set)
                 vtx_set_key = vtx_set[0][0]
                 vtx_set_key, *_ = struct.unpack('=Q', vtx_set_key)
-                assert graph_i == vtx_set_key, f"{graph_i} != {vtx_set_key}"
+                assert graph_i[0] == vtx_set_key, f"{graph_i} != {vtx_set_key}"
                 vtx_set_value = vtx_set[0][1]
                 head, tail = struct.unpack('=QQ', vtx_set_value)
                 assert 0 != head and 0 == tail, f"head={head}, tail={tail}"
@@ -283,20 +285,22 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graph_vertex_delete(self):
         filename = f"./test.db"
-        graph_i = 0xACE
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
         indexes = []
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
+            graphdb.graph.init(txn, graph_i)
             for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
-                v = g.vertex(i,True)
+                graphdb.graph.vertex(txn, graph_i, i, True)
             indexes = [0,
                        graphdb.PAGE_SIZE * bitarray.CELL_SIZE // 2,
                        graphdb.PAGE_SIZE * bitarray.CELL_SIZE - 1]
-            v = g.vertex(indexes[0],False)
-            v = g.vertex(indexes[1], False)
-            v = g.vertex(indexes[2], False)
+            graphdb.graph.vertex(txn, graph_i, indexes[0], False)
+            graphdb.graph.vertex(txn, graph_i, indexes[1], False)
+            graphdb.graph.vertex(txn, graph_i, indexes[2], False)
         ctx = mp.get_context('spawn')
-        p = ctx.Process(target=self.__class__.impl_graph_vertex_delete, args=(filename, graph_i, indexes))
+        p = ctx.Process(target=self.__class__.impl_graph_vertex_delete, args=(filename,
+                                                                              graphdb.view_graph_vtx_set_key(graph_i),
+                                                                              indexes))
         p.start()
         p.join()
         self.assertEqual(0, -1 * p.exitcode)
@@ -304,47 +308,52 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graph_is_vertex(self):
         filename = f"./test.db"
-        graph_i = 0xACE
-        with graphdb.TransactionNode(filename) as txn:            
-            g = graph.make_graph_db(txn, graph_i)
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
+        with graphdb.TransactionNode(filename) as txn:
+            graphdb.graph.init(txn, graph_i)
             expected = []
             for i in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE, 2):
-                expected.append(g.vertex(i,True))
+                graphdb.graph.vertex(txn, graph_i, i, True)
+                expected.append(i)
             received = []
             for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE):
-                if g.is_vertex(i): received.append(i)
+                if graphdb.graph.is_vertex(txn, graph_i, i): received.append(i)
             self.assertEqual(expected, received)
 
     @rm_test_dir
     def test_graph_is_edge(self):
         filename = f"./test.db"
-        graph_i = 0xACE
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
+            graphdb.graph.init(txn, graph_i)
             expected = []
             for i in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE // 1000, 2):
                 r = random.randint(0, i)
+                graphdb.graph.vertex(txn, graph_i, i, True)
+                graphdb.graph.vertex(txn, graph_i, r, True)
+                graphdb.graph.edge(txn, graph_i, i, r, True)
                 expected.append((i,r))
-                g.vertex(i,True)
-                g.vertex(r,True)
-                g.edge(i,r,True)
             received = []
             for i in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE // 1000):
                 for j in range(graphdb.PAGE_SIZE * bitarray.CELL_SIZE // 1000):
-                    if g.is_edge(i,j): received.append((i,j))
+                    if graphdb.graph.is_edge(txn, graph_i, i,j): received.append((i,j))
             self.assertEqual(expected, received)
 
     @rm_test_dir
     def test_graph_iter_vertex(self):
         filename = f"./test.db"
-        graph_i = 0xACE
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
+            graphdb.graph.init(txn, graph_i)
             received = []
-            g.vertices(lambda n : received.append(n), 0,0,1)
+            graphdb.graph.vertices(txn, graph_i, lambda n : received.append(n))
             self.assertEqual([], received)
-            expected = [g.vertex(0,True) for _ in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE, 2)]
-            g.vertices(lambda n : received.append(n), 0,0,1)
+            expected = []
+            for _ in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE, 2):
+                v = graphdb.graph.is_available(txn, graph_i, 0)
+                graphdb.graph.vertex(txn, graph_i, v, True)
+                expected.append(v)
+            graphdb.graph.vertices(txn, graph_i, lambda n : received.append(n))
             expected = sorted(expected)
             received = sorted(received)
             self.assertEqual(expected, received, f"{expected}, {received}")
@@ -352,22 +361,24 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graph_iter_edge(self):
         filename = f"./test.db"
-        graph_i = 0xACE
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
+            graphdb.graph.init(txn, graph_i)
             received = []
-            g.edges(lambda x,y: received.append((x,y)), 0,0,1)
+            graphdb.graph.edges(txn, graph_i, lambda x,y: received.append((x,y)))
             self.assertEqual([], received)
             expected = []
             for i in range(1, graphdb.PAGE_SIZE * bitarray.CELL_SIZE, 2):
                 r = random.randint(0, i)
-                x = g.vertex(i,True)
-                y = g.vertex(r,True)
+                x = graphdb.graph.is_available(txn, graph_i, i)
+                graphdb.graph.vertex(txn, graph_i, x, True)
+                y = graphdb.graph.is_available(txn, graph_i, r)
+                graphdb.graph.vertex(txn, graph_i, y, True)
                 expected.append((x,y))
-                g.edge(x,y,True)
-                self.assertTrue(g.is_edge(x,y), f"{(x,y)}")
+                graphdb.graph.edge(txn, graph_i, x, y, True)
+                self.assertTrue(graphdb.graph.is_edge(txn, graph_i, x, y), f"{(x,y)}")
             received = []
-            g.edges(lambda x,y: received.append((x,y)), 0,0,1)
+            graphdb.graph.edges(txn, graph_i, lambda x,y: received.append((x,y)))
             expected = sorted(set(expected))
             received = sorted(set(received))
             self.assertEqual(expected, received, f"{expected}, {received}")
@@ -384,26 +395,25 @@ class Test(unittest.TestCase):
         k = graphdb.make_list_key(1,2)
         self.assertEqual((1,2), graphdb.view_list_key(k))
 
-    @unittest.skip
     @rm_test_dir
     def test_rw_txns_large_graph(self):
         filename = f"./test.db"
-        graph_i = 0xACE
-        limit = 20 * 1024 * 1024 * 1024
+        graph_i = graphdb.make_graph_vtx_set_key(0xACE)
+        limit = 1024 * 1024 * 1024 * 2  # 2 GiB by default, 20 GiB for real test
         while True:
             with graphdb.TransactionNode(filename) as txn:
-                g = graph.make_graph_db(txn, graph_i)
-                v = g.vertex(0, True)
-                g.edge(v,v,True)
+                graphdb.graph.init(txn, graph_i)
+                v = graphdb.graph.is_available(txn, graph_i, 0)
+                graphdb.graph.vertex(txn, graph_i, v, True)
+                graphdb.graph.edge(txn, graph_i, v, v, True)
             if Path(filename).stat().st_size >= limit:
                 break
         with graphdb.TransactionNode(filename) as txn:
-            g = graph.make_graph_db(txn, graph_i)
             class ctx: pass
             def callback(vtx):
                 if not hasattr(ctx, 'order'): ctx.order = 0
                 ctx.order += 1
-            g.vertices(callback, 0,0,1)
+            graphdb.graph.vertices(txn, graph_i, callback)
             print('order:', ctx.order)
 
     @rm_test_dir

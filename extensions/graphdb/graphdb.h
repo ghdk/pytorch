@@ -20,7 +20,7 @@ namespace head
  * - If there is a collision with r, then seeks forward up to
  *   PAGE_SIZE*CHAR_BIT for an empty slot. If a slot cannot be found,
  *   extends N by one, ie. extends the hypothetical space by one page,
- *   and returns N*PAGE_SIZE*CHAR_BIT + r%(PAGE_SIZE*CHAR_BIT).
+ *   and returns N*PAGE_SIZE*CHAR_BIT.
  */
 template<typename K, typename = schema::is_list_key_t<K>>
 void find(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
@@ -67,7 +67,7 @@ void find(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
             {
                 N += 1;
                 step = 0;
-                ret = max + 1 + (ret % page_sz);
+                ret = max + 1;
                 break;
             }
             if(ret == hint.begin()->head())
@@ -998,7 +998,6 @@ namespace graph  // Transactions that manage the graph.
         schema::TransactionNode session{parent, graphdb::flags::txn::NESTED_RW};
 
         int rc = 0;
-        schema::list_key_t::value_type ret = hint;
 
         extensions::graphdb::schema::meta_page_t N = 0;
         schema::list_key_t::value_type max = 0;
@@ -1030,7 +1029,7 @@ namespace graph  // Transactions that manage the graph.
          * A discussion of the algorithm used can be found at the top of this file.
          */
 
-        bool needs_expansion = false;
+        schema::list_key_t::value_type ret = hint;
         schema::list_key_t::value_type step = 0;
 
         std::random_device r;
@@ -1063,16 +1062,15 @@ namespace graph  // Transactions that manage the graph.
                      */
 
                     page = torch::zeros(extensions::graphdb::schema::page_size, options);
-                    iter = {iter.head(), N};
+                    iter = {iter.head(), 0};
                     extensions::graphdb::list::expand(session.vtx_set_.list_, iter, page);
-                    break;
                 }
             }
-            if(ret + step <= max && !extensions::bitarray::get(page, vtx)) break;
-            if((ret || step) && !((ret + step) % slice))
+            if(!extensions::bitarray::get(page, vtx)) break;
+            if((ret || step) && !vtx)  // search only one page
             {
                 step = 0;
-                ret = max + 1 + (ret % slice);
+                ret = max;
             }
             if(ret == hint)
             {
@@ -1096,14 +1094,14 @@ namespace graph  // Transactions that manage the graph.
         auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(vertex);
 
         extensions::graphdb::schema::list_key_t iter;
-        assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph, iter)), rc);
+        assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph, iter)), rc, graph);
         iter.tail() = tail;
 
         torch::TensorOptions options = torch::TensorOptions().dtype(torch::kUInt8)
                                                              .requires_grad(false);
         torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
 
-        assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.get(iter, page)), rc);
+        assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.get(iter, page)), rc, iter, vertex);
         return extensions::bitarray::get(page, vtx);
     }
 
@@ -1118,14 +1116,14 @@ namespace graph  // Transactions that manage the graph.
         auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(vertex);
 
         extensions::graphdb::schema::list_key_t iter;
-        assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph, iter)), rc);
+        assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph, iter)), rc, graph);
         iter.tail() = tail;
 
         torch::TensorOptions options = torch::TensorOptions().dtype(torch::kUInt8)
                                                              .requires_grad(false);
         torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
 
-        assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.get(iter, page)), rc);
+        assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.get(iter, page)), rc, iter, vertex);
         extensions::bitarray::set(page, vtx, truth);
         assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.put(iter, page, extensions::graphdb::flags::put::DEFAULT)), rc, iter);
     }
@@ -1142,8 +1140,7 @@ namespace graph  // Transactions that manage the graph.
                                                              .requires_grad(false);
         torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
 
-        assert(graph::vertex(session, graph, vertex_i));
-        assert(graph::vertex(session, graph, vertex_j));
+        // NB. checking here for the presence of vertices is unecessary overhead
 
         int rc = 0;
 
@@ -1221,6 +1218,81 @@ namespace graph  // Transactions that manage the graph.
             head = {iter.head(), 0};  // switch to the adj mtx list
             extensions::graphdb::list::end::write(session.adj_mtx_.list_, head, end);
         }
+    }
+
+    using vertices_visitor_t = std::function<void(schema::graph_vtx_set_key_t::value_type /* vertex */)>;
+    using edges_visitor_t = std::function<void(schema::graph_vtx_set_key_t::value_type /* vertex */, schema::graph_vtx_set_key_t::value_type /* vertex */)>;
+
+    static void vertices(schema::TransactionNode const& parent,
+                         schema::graph_vtx_set_key_t graph,
+                         vertices_visitor_t const& visitor)
+    {
+        // NB. does not create a child transaction as a) it does not modify the DB, 
+        // b) gives an opportunity to the visitor to use the parent transaction.
+        int rc = 0;
+
+        torch::TensorOptions options = torch::TensorOptions().dtype(torch::kUInt8)
+                                                             .requires_grad(false);
+        torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
+
+        schema::graph_vtx_set_key_t::value_type slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
+
+        extensions::graphdb::schema::list_key_t iter;
+        assertm(MDB_SUCCESS == (rc = parent.vtx_set_.main_.get(graph, iter)), rc);
+
+        for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
+        {
+            iter.tail() = i;
+            rc = parent.vtx_set_.list_.get(iter, page);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, iter);
+            if(MDB_NOTFOUND == rc) break;
+            for(size_t vtx = 0; vtx < slice; vtx++)
+            {
+                if(extensions::bitarray::get(page, vtx))
+                    visitor(slice * i + vtx);
+            }
+        }
+    }
+
+    static void edges(schema::TransactionNode const& parent,
+                      schema::graph_vtx_set_key_t graph,
+                      edges_visitor_t const& visitor)
+    {
+        // NB. does not create a child transaction as a) it does not modify the DB, 
+        // b) gives an opportunity to the visitor to use the parent transaction.
+        int rc = 0;
+
+        torch::TensorOptions options = torch::TensorOptions().dtype(torch::kUInt8)
+                                                             .requires_grad(false);
+        torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
+
+        schema::graph_vtx_set_key_t::value_type slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
+
+        vertices_visitor_t vtx_set_visitor = [&](schema::graph_vtx_set_key_t::value_type vtx)
+        {
+            extensions::graphdb::schema::graph_adj_mtx_key_t row = {graph.graph(), vtx};
+            extensions::graphdb::schema::list_key_t iter;
+            rc = parent.adj_mtx_.main_.get(row, iter);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, iter);
+            if(MDB_NOTFOUND == rc) return;
+
+            graphdb::schema::list_end_t end;  // NB. the adj mtx is sparse
+            extensions::graphdb::list::end::read(parent.adj_mtx_.list_, iter, end);
+
+            for(size_t i = iter.tail(); i < end.length(); i++)
+            {
+                iter.tail() = i;
+                rc = parent.adj_mtx_.list_.get(iter, page);
+                assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, iter);
+                if(MDB_NOTFOUND == rc) continue;
+                for(size_t vtx_n = 0; vtx_n < slice; vtx_n++)
+                {
+                    if(extensions::bitarray::get(page, vtx_n))
+                        visitor(vtx, slice * i + vtx_n);
+                }
+            }
+        };
+        vertices(parent, graph, vtx_set_visitor);
     }
 }  // namespace graph
 
