@@ -14,7 +14,6 @@ using namespace extensions;
 #include "../graphdb/envpool.h"
 #include "../graphdb/transaction.h"
 #include "../graphdb/graphdb.h"
-#include "storage.h"
 #include "graph.h"
 
 size_t extensions::graph::feature::order(const Graph graph)

@@ -25,7 +25,6 @@ extern "C"
 #include "../graphdb/graphdb.h"
 #include "../graphdb/envpool.h"
 #include "../graph/feature.h"
-#include "../graph/storage.h"
 #include "../graph/graph.h"
 
 #include "schema.h"

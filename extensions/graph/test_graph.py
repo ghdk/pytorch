@@ -8,17 +8,17 @@ from graph import graph as G
 from graphdb import graphdb
 
 def SIGABRT_test_vertex_delete_out_of_bounds():
-    g = G.make_graph();
+    g = G.Graph();
     v = g.vertex(graphdb.PAGE_SIZE * B.CELL_SIZE, False)
     
 def SIGABRT_test_vertex_add_out_of_bounds():
-    g = G.make_graph();
+    g = G.Graph();
     v = g.vertex(graphdb.PAGE_SIZE * B.CELL_SIZE, True)
 
 class Test(unittest.TestCase):
     
     def test_init(self):
-        g = G.make_graph()
+        g = G.Graph()
         received = []
         g.vertices(lambda n : received.append(n), 0,0,1)
         self.assertEqual([], received)
@@ -27,7 +27,7 @@ class Test(unittest.TestCase):
         self.assertEqual([], received)
         
     def test_vertex_add(self):
-        g = G.make_graph()
+        g = G.Graph()
         received = []
         g.vertices(lambda n : received.append(n), 0,0,1)
         self.assertEqual([], received)
@@ -44,7 +44,7 @@ class Test(unittest.TestCase):
 
     def test_vertex_add_triggers_expansion(self):
         total = graphdb.PAGE_SIZE * B.CELL_SIZE
-        g = G.make_graph()
+        g = G.Graph()
         expected = []
         for i in range(0, total):
             expected.append(g.vertex(i, True))
@@ -75,7 +75,7 @@ class Test(unittest.TestCase):
         self.assertEqual(graphdb.PAGE_SIZE * B.CELL_SIZE - 1, sorted(received)[-2])
 
     def test_vertex_delete(self):
-        g = G.make_graph()
+        g = G.Graph()
         received = []
         g.vertices(lambda n : received.append(n), 0,0,1)
         self.assertEqual([], received)
@@ -121,13 +121,13 @@ class Test(unittest.TestCase):
         self.assertEqual(SIGABRT, -1 * p.exitcode)
 
     def test_graph_order(self):
-        g = G.make_graph()
+        g = G.Graph()
         self.assertEqual(0, G.order(g))
         g.vertex(0,True)
         self.assertEqual(1, G.order(g))
     
     def test_graph_size(self):
-        g = G.make_graph()
+        g = G.Graph()
         self.assertEqual(0, G.size(g, G.UNDIRECTED))
         total = graphdb.PAGE_SIZE * B.CELL_SIZE
         for i in range(0, total):
@@ -141,7 +141,7 @@ class Test(unittest.TestCase):
         self.assertEqual(3, G.size(g, G.DIRECTED))
         
     def test_graph_iter_vertex(self):
-        g = G.make_graph()
+        g = G.Graph()
         received = []
         g.vertices(lambda n : received.append(n), 0,0,1)
         self.assertEqual([], received)
@@ -152,7 +152,7 @@ class Test(unittest.TestCase):
         self.assertEqual([0, 10], received)
     
     def test_graph_iter_edge(self):
-        g = G.make_graph()
+        g = G.Graph()
         received = []
         g.edges(lambda x,y : received.append((x,y)), 0,0,1)
         self.assertEqual([], received)
