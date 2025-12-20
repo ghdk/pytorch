@@ -70,13 +70,13 @@ update::
 
 update README.md::
 
-    md2html --output=docs/index.html --full-html --xhtml README.md
     git checkout main
     git fetch upstream main
     git reset --hard upstream/main
     git push -u origin main
     git checkout e2.3.1 -- README.md .github/FUNDING.yml .nojekyll docs/index.html
-
+    md2html --output=docs/index.html --full-html --xhtml README.md
+    
 static analysis::
 
     mypy --strict --disable-error-code attr-defined --disable-error-code no-untyped-call --disable-error-code no-untyped-def -m <file as it appears in python's import statement>
