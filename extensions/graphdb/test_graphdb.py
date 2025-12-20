@@ -56,8 +56,8 @@ class Test(unittest.TestCase):
         graphdb.test.test_graphdb_list_write_and_read()
 
     @rm_test_dir
-    def test_graphdb_list_write_and_clear(self):
-        graphdb.test.test_graphdb_list_write_and_clear()
+    def test_graphdb_list_write_and_purge(self):
+        graphdb.test.test_graphdb_list_write_and_purge()
         
     @rm_test_dir
     def test_graphdb_hash_write(self):

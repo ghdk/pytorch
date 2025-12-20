@@ -157,7 +157,7 @@ void read(graphdb::Database const& parent, K& node, schema::list_end_t& end)
  * Removes a linked list from the DB.
  */
 template<typename K, typename = schema::is_list_key_t<K>>
-void clear(graphdb::Database const& parent, graphdb::mdb_view<K> node)
+void purge(graphdb::Database const& parent, graphdb::mdb_view<K> node)
 {
     assertm(0 != node.begin()->head(), node.begin()->head());
 
@@ -183,10 +183,10 @@ void clear(graphdb::Database const& parent, graphdb::mdb_view<K> node)
 }
 
 template<typename K>
-void clear(graphdb::Database const& parent, K& node)
+void purge(graphdb::Database const& parent, K& node)
 {
     mdb_view<K> node_v(&node, 1);
-    clear(parent, node_v);
+    purge(parent, node_v);
 }
 
 /**
@@ -216,10 +216,10 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
         assertm(MDB_SUCCESS == (rc = parent.put(iter_k, iter_v, flags::put::DEFAULT)), rc);
     }
 
-    // if we are overwriting an existing list, clear the remainder of the
+    // if we are overwriting an existing list, purge the remainder of the
     // old list
     iter.tail() += 1;
-    clear(parent, iter);
+    purge(parent, iter);
 
     extensions::graphdb::schema::list_end_t end;
     end::read(parent, iter, end);
@@ -485,7 +485,7 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
         rc = parent.get(iter_k, iter_v);
         if(iter.tail() == node.begin()->tail())
         {
-            assertm(MDB_SUCCESS == rc ,rc);  // key must be in the DB.
+            assertm(MDB_SUCCESS == rc ,rc, iter);  // key must be in the DB.
 
             /**
              * Linked lists are created due to (a) breaking larger buffers into
@@ -592,16 +592,17 @@ void decrease(schema::DatabaseSet const& parent, graphdb::mdb_view<K> key, graph
     if(end.refcount())
     {
         list::end::write(parent.list_, *(head.begin()), end);
-        *(head.begin()) = {0,0};  // the list has not been removed, the head
-                                  // should not be reused
+
+        // the list has not been removed, signal the caller
+        // that they need to find a new head
+        *(head.begin()) = {schema::RESERVED, 0};
     }
     else
     {
         head.begin()->tail() = 0;
-        list::clear(parent.list_, *(head.begin()));
+        list::purge(parent.list_, *(head.begin()));
 
-        // the list will be removed, the head can be reused so leave it
-        // pointing to the old list
+        // the list has been removed, the caller can reuse the head
         *(head.begin()) = {head.begin()->head(), 0};
     }
 
@@ -763,7 +764,7 @@ bool write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
     bool present = false;
     int rc = 0;
 
-    schema::list_key_t head = {0,0};
+    schema::list_key_t head = {schema::RESERVED, 0};
     schema::list_key_t hash = {extensions::graphdb::hash::make(value), 0};
     schema::list_end_t end;
 
@@ -824,6 +825,39 @@ bool write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
     return !present;
 }
 
+template <typename K>
+void purge(schema::DatabaseSet const& parent, K const& key)
+{
+    int rc = 0;
+    schema::list_key_t iter;
+    schema::list_key_t hash;
+    schema::list_end_t end;
+
+    rc = parent.main_.get(key, iter);
+    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
+    if(MDB_NOTFOUND == rc) return;
+
+    list::end::read(parent.list_, iter, end);
+    hash = {end.hash(), 0};
+
+    // remove the key from the hash
+    extensions::graphdb::hash::visitor_t<K> visitor =
+            [&](schema::list_key_t h4sh, K k3y)
+            {
+                assertm(hash.head() == h4sh.head(), hash.head(), h4sh.head());
+                if(key == k3y)
+                {
+                    list::remove(parent.hash_, h4sh);
+                    return MDB_SUCCESS;
+                }
+                return MDB_NOTFOUND;
+            };
+    hash::visit(parent.hash_, hash, visitor);
+
+    // decrease the refcount, remove the key from the main table
+    extensions::graphdb::refcount::decrease(parent, key, iter);
+
+}
 }  // namespace feature
 
 namespace bitarray  // Transactions that manage the bitmaps.

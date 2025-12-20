@@ -617,7 +617,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                });
 
-        mt.def("test_graphdb_list_write_and_clear",
+        mt.def("test_graphdb_list_write_and_purge",
                +[]{
                    using namespace extensions::graphdb;
 
@@ -678,7 +678,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        Transaction txn(env, flags::txn::WRITE);
                        Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
-                       list::clear(db, head);
+                       list::purge(db, head);
 
                        // verify the DB
 
@@ -1034,6 +1034,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                    extensions::graphdb::schema::vertex_feature_key_t keyA = {0,0,0};
                    extensions::graphdb::schema::vertex_feature_key_t keyB = {0,1,0};
+                   extensions::graphdb::schema::vertex_feature_key_t keyC = {1,0,0};
 
                    extensions::graphdb::schema::list_key_t hashA;
                    extensions::graphdb::schema::list_key_t hashB;
@@ -1052,10 +1053,11 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        extensions::graphdb::feature::write(child.vertex_, keyA, buffer, true);  // refcount == 1
                        extensions::graphdb::feature::write(child.vertex_, keyA, buffer, true);  // this should be a noop
                        extensions::graphdb::feature::write(child.vertex_, keyB, buffer, true);  // refcount == 2
+                       extensions::graphdb::feature::write(child.vertex_, keyC, buffer, true);  // refcount == 3
                    }
 
                    {
-                       // there should be a list with refcount 2
+                       // there should be a list with refcount 3
                        extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
 
                        buff_t buffer{0};
@@ -1082,28 +1084,31 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(2 == end.length(), end.length());
                        assertm(buffer.size() * sizeof(elem_t) == end.bytes(), end.bytes());
                        assertm(hashA.head() == end.hash(), end.hash());
-                       assertm(2 == end.refcount(), end.refcount());
+                       assertm(3 == end.refcount(), end.refcount());
                    }
 
                    {
-                       // the two keys should point to the same head, whose
-                       // refcount should be 2
+                       // the three keys should point to the same head, whose
+                       // refcount should be 3
                        extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
 
                        schema::list_key_t headA;
                        schema::list_key_t headB;
+                       schema::list_key_t headC;
 
                        assertm(MDB_SUCCESS == (rc = child.vertex_.main_.get(keyA, headA)), rc);
                        assertm(MDB_SUCCESS == (rc = child.vertex_.main_.get(keyB, headB)), rc);
+                       assertm(MDB_SUCCESS == (rc = child.vertex_.main_.get(keyC, headC)), rc);
 
                        assertm(headA == headB, headA, headB);
+                       assertm(headA == headC, headA, headC);
                    }
 
                    {
-                       // the same hash should have two keys
+                       // the same hash should have three keys
                        extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
 
-                       std::array<bool, 2> result = {false};
+                       std::array<bool, 3> result = {false};
                        extensions::graphdb::hash::visitor_t<schema::vertex_feature_key_t> visitor =
                                [&](schema::list_key_t iter, schema::vertex_feature_key_t key)
                                {
@@ -1111,14 +1116,15 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                    // implicitly the integrity of the list nodes through the tail
                                    if(key == keyA) result[iter.tail()] = true;
                                    if(key == keyB) result[iter.tail()] = true;
+                                   if(key == keyC) result[iter.tail()] = true;
                                    return MDB_NOTFOUND;  // force iteration over all items
                                };
                        extensions::graphdb::hash::visit(child.vertex_.hash_, hashA, visitor);
-                       assertm(std::all_of(result.begin(), result.end(), [](bool val){ return true == val; }), result[0], result[1]);
+                       assertm(std::all_of(result.begin(), result.end(), [](bool val){ return true == val; }), extensions::dump(result));
                    }
 
                    {
-                       // associate a new value with keyB
+                       // associate a new value with keyB and delete keyC
                        extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RW};
 
                        buff_t buffer{0};
@@ -1129,7 +1135,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                        hashB.head() = hash::make(buffer);
 
-                       extensions::graphdb::feature::write(child.vertex_, keyB, buffer, true);  // refcount == 1
+                       extensions::graphdb::feature::write(child.vertex_, keyB, buffer, true);
+                       extensions::graphdb::feature::purge(child.vertex_, keyC);  // refcount == 1
                    }
 
                    {
@@ -1186,11 +1193,14 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                        schema::list_key_t headA;
                        schema::list_key_t headB;
+                       schema::list_key_t headC;
 
                        assertm(MDB_SUCCESS == (rc = child.vertex_.main_.get(keyA, headA)), rc);
                        assertm(MDB_SUCCESS == (rc = child.vertex_.main_.get(keyB, headB)), rc);
 
                        assertm(headA != headB, headA, headB);
+
+                       assertm(MDB_NOTFOUND == (rc = child.vertex_.main_.get(keyC, headC)), rc);
                    }
 
                    {
@@ -1209,6 +1219,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                    // both tails should be zero
                                    if(key == keyA) result[iter.tail()] = true;
                                    if(key == keyB) result[!iter.tail()] = true;
+                                   assert(key != keyC);
                                    return MDB_NOTFOUND;  // force iteration over all items
                                };
 
