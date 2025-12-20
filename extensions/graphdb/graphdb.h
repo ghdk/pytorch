@@ -755,9 +755,14 @@ int visit(schema::DatabaseSet const& parent, K& key, visitor_t visitor)
 }
 
 template <typename K, typename V>
-void write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashed)
+bool write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashed)
 {
+    /**
+     * Returns true when the value is not present in the DB.
+     */
+    bool present = false;
     int rc = 0;
+
     schema::list_key_t head = {0,0};
     schema::list_key_t hash = {extensions::graphdb::hash::make(value), 0};
     schema::list_end_t end;
@@ -768,8 +773,8 @@ void write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
     if(MDB_SUCCESS == rc)
     {
         list::end::read(parent.list_, head, end);
-        bool present = list::holds(parent.list_, head, value, hash.head());
-        if(present) return;  // noop
+        present = list::holds(parent.list_, head, value, hash.head());
+        if(present) return !present;  // noop
         else
             extensions::graphdb::refcount::decrease(parent, key, head);
     }
@@ -782,9 +787,9 @@ void write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
                 return visit(parent, k3y,
                              [&](schema::list_key_t iter, size_t size, size_t hAsh) -> int
                              {
-                                 bool stored = list::holds(parent.list_, iter, value, hash.head());
-                                 if(stored) head = iter;
-                                 return  stored ? MDB_SUCCESS : MDB_NOTFOUND;
+                                 present = list::holds(parent.list_, iter, value, hash.head());
+                                 if(present) head = iter;
+                                 return  present ? MDB_SUCCESS : MDB_NOTFOUND;
                              });
             };
     hash::visit(parent.hash_, value, visitor);
@@ -816,6 +821,7 @@ void write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
     }
 
     extensions::graphdb::list::write(parent.list_, head, value);
+    return !present;
 }
 
 }  // namespace feature
