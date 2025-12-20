@@ -33,48 +33,39 @@ extern "C"
 class FindNamedClassVisitor : public RecursiveASTVisitor<FindNamedClassVisitor>
 {
 public:
-
-    bool is_token_in_the_db(std::string_view token)
-    {
-        extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::NESTED_RO);
-
-        using L = extensions::graphdb::schema::list_key_t;
-        using K = extensions::graphdb::schema::vertex_feature_key_t;
-        extensions::graphdb::hash::visitor_t<K> visitor =
-                [&](L h4sh, K k3y)
-                {
-                    return extensions::graphdb::feature::visit(txn.vertex_, k3y,
-                                                               [&](L iter, size_t size, size_t hAsh) -> int
-                                                               {
-                                                                    assertm(h4sh.head() == hAsh, h4sh, hAsh);
-                                                                    bool stored = extensions::graphdb::list::holds(txn.vertex_.list_, iter, token, hAsh);
-                                                                    return  stored ? MDB_SUCCESS : MDB_NOTFOUND;
-                                                               });
-                };
-        int rc = extensions::graphdb::hash::visit(txn.vertex_.hash_, token, visitor);
-        return MDB_SUCCESS == rc;
-    }
-
     bool VisitFunctionDecl(const FunctionDecl *declaration)
     {
         std::string token = declaration->getQualifiedNameAsString();
 
-        if(token.size() && !is_token_in_the_db(token))
+        if(token.size())
         {
-            extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::NESTED_RW);
+            {
+                extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::WRITE);
+                extensions::graphdb::graph::init(txn, extensions::rsse::schema::GRAPH);
+            }
+            extensions::graphdb::schema::list_key_t::value_type vtx = 0;
+            extensions::graphdb::schema::vertex_feature_key_t key = {extensions::rsse::schema::GRAPH.graph(),
+                                                                     vtx,
+                                                                     extensions::rsse::schema::feature::NAME};
+            {
+                extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::READ);
+                // it doesn't matter that the key is 0 for now, we just want to see if the value is unique.
+                auto [_, unique] = extensions::graphdb::feature::write(txn.vertex_, key, token, true);
+                if(!unique) return true;
+            }
 
-            extensions::graph::Graph g = extensions::graph::Graph::make_graph(txn, extensions::rsse::schema::GRAPH.graph());
-            extensions::graphdb::schema::vertex_feature_key_t key;
+            {
+                extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::WRITE);
+                vtx = extensions::graphdb::graph::is_available(txn, extensions::rsse::schema::GRAPH, vtx);
+                key.vertex() = vtx;
 
-            auto vtx = g.vertex(0, true);
+                extensions::graphdb::feature::write(txn.vertex_, key, token, true);
 
-            key = {extensions::rsse::schema::GRAPH.graph(),
-                   vtx,
-                   extensions::rsse::schema::feature::NAME};
-            extensions::graphdb::feature::write(txn.vertex_, key, token, true);
+                key.attribute() = extensions::rsse::schema::feature::TYPE;
+                extensions::graphdb::feature::write(txn.vertex_, key, extensions::rsse::schema::type::FUNCTION_DECL, false);
 
-            key.attribute() = extensions::rsse::schema::feature::TYPE;
-            extensions::graphdb::feature::write(txn.vertex_, key, extensions::rsse::schema::type::FUNCTION_DECL, false);
+                extensions::graphdb::graph::vertex(txn, extensions::rsse::schema::GRAPH, vtx, true);
+            }
         }
         return true;
     }
@@ -89,22 +80,33 @@ public:
             std::string_view token(declaration->getName().data(), declaration->getName().size());
             std::string_view loc(SourceMgr.getFilename(FullLocation).data(), SourceMgr.getFilename(FullLocation).size());
 
-            if(token.size() && !is_token_in_the_db(token))
+            if(token.size())
             {
-                extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::NESTED_RW);
+                {
+                    extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::WRITE);
+                    extensions::graphdb::graph::init(txn, extensions::rsse::schema::GRAPH);
+                }
+                extensions::graphdb::schema::list_key_t::value_type vtx = 0;
+                extensions::graphdb::schema::vertex_feature_key_t key = {extensions::rsse::schema::GRAPH.graph(),
+                                                                         vtx,
+                                                                         extensions::rsse::schema::feature::NAME};
+                {
+                    extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::READ);
+                    auto [_, unique] = extensions::graphdb::feature::write(txn.vertex_, key, token, true);
+                    if(!unique) return true;
+                }
+                {
+                    extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::WRITE);
+                    vtx = extensions::graphdb::graph::is_available(txn, extensions::rsse::schema::GRAPH, vtx);
+                    key.vertex() = vtx;
+                    
+                    extensions::graphdb::feature::write(txn.vertex_, key, token, true);
 
-                extensions::graph::Graph g = extensions::graph::Graph::make_graph(txn, extensions::rsse::schema::GRAPH.graph());
-                extensions::graphdb::schema::vertex_feature_key_t key;
+                    key.attribute() = extensions::rsse::schema::feature::TYPE;
+                    extensions::graphdb::feature::write(txn.vertex_, key, extensions::rsse::schema::type::RECORD_DECL, false);
 
-                auto vtx = g.vertex(0, true);
-
-                key = {extensions::rsse::schema::GRAPH.graph(),
-                       vtx,
-                       extensions::rsse::schema::feature::NAME};
-                extensions::graphdb::feature::write(txn.vertex_, key, token, true);
-
-                key.attribute() = extensions::rsse::schema::feature::TYPE;
-                extensions::graphdb::feature::write(txn.vertex_, key, extensions::rsse::schema::type::RECORD_DECL, false);
+                    extensions::graphdb::graph::vertex(txn, extensions::rsse::schema::GRAPH, vtx, true);
+                }
             }
         }
 

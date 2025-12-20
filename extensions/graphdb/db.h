@@ -193,6 +193,7 @@ public:
 public:
     Transaction(Environment const& env, unsigned int flags)
     : env_{env}
+    , flags_{flags}
     {
         int rc = mdb_txn_begin(env_, NULL, flags, &handle_);
         assert(MDB_SUCCESS == rc);
@@ -209,25 +210,31 @@ public:
 
     Transaction(Environment const& env, Transaction const& parent, unsigned int flags)
     : env_{env}
+    , flags_{flags}
     {
         int rc = mdb_txn_begin(env_, parent, flags, &handle_);
         assertm(MDB_SUCCESS == rc, rc);
     }
 
-    operator handle_type() const
-    {
-        return handle_;
-    }
-
-public:
     Transaction(Transaction const&) = delete;
     Transaction(Transaction&&) = delete;
     Transaction& operator=(Transaction const&) = delete;
     Transaction& operator=(Transaction&&) = delete;
 
 public:
+    operator handle_type() const
+    {
+        return handle_;
+    }
+
+public:
     handle_type handle_;
     Environment const& env_;
+
+    /**
+     * I am not sure how lmdb manages the flags, keep a copy here to use as a reference.
+     */
+    unsigned int flags_;
 };
 
 class Database

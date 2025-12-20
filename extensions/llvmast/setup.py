@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import subprocess
 from pathlib import Path
 import base64
 import bz2
@@ -15,6 +16,7 @@ from llvmast import llvmast
 import cached_cflags
 
 EXT_USE_WORKSPACE = os.environ.get("EXT_USE_WORKSPACE") or '.'
+EXT_USE_PROF = os.environ.get("EXT_USE_PROF") in ['1']
 
 class DB:
 
@@ -68,10 +70,11 @@ class clean(Command):
             if Path(DB.db) == child: child.unlink()
             if Path(llvmast.DB_FILE) == child: child.unlink()
             if Path(llvmast.DB_FILE+"-lock") == child: child.unlink()
-            if "llvmast_" in str(child) and ".log" == child.suffix: child.unlink()
+            if "llvmast" in str(child) and child.suffix in [".log", ".prof"]: child.unlink()
 
 def kernel(idx, step, log):
     sys.stderr = open(log, 'w')
+    print("pid", mp.current_process().pid, file=sys.stderr)
     ret = None
     with DB() as db:
         indexlist = sorted([k for k in db.keys() if k not in ['hdr', 'src', 'skip', 'all']])
@@ -94,6 +97,7 @@ class prepare(Command):
 
     def finalize_options(self):
         self._workspace = [EXT_USE_WORKSPACE]
+        self._profile = EXT_USE_PROF
     
     def run(self):
         with DB(rw=True) as db:
@@ -114,14 +118,21 @@ class prepare(Command):
                     db['all'] = db['all'] or (child.suffix in db['hdr'] and db[str(child)]['cc_mtime'] != db[str(child)]['st_mtime'])
         
         proc_count = os.cpu_count()  # serialised over the shared DB
-        logs = [f"llvmast_{i}.log" for i in range(proc_count)]
+        logs = [f"llvmast{i}.log" for i in range(proc_count)]
         print(f"logs={logs}")
 
         mtx = None
+        profiler = []
         with mp.get_context('fork').Pool(processes=proc_count) as pool:
             args = lambda i: (i, proc_count, logs[i])
             r = pool.starmap_async(kernel, [args(i) for i in range(proc_count)])
+            if self._profile:
+                pids = [child.pid for child in mp.active_children()]
+                for pid in pids:
+                    proc = subprocess.Popen(['/usr/bin/sample', f"{pid}", "86400", "-wait", "-file", f"./llvmast{pid}.prof"])
+                    profiler.append(proc)
             mtx = r.get()
+        if profiler: print("profiler rc", [p.wait() for p in profiler])
             
         # reduce the results of the kernels
         with DB(rw=True) as db:

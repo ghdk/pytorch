@@ -721,8 +721,6 @@ int visit(graphdb::Database const& parent, V& value, visitor_t<K> visitor)
 
     return visit(parent, hash, visitor);
 }
-
-
 }  // namespace hash
 
 namespace feature
@@ -756,10 +754,28 @@ int visit(schema::DatabaseSet const& parent, K& key, visitor_t visitor)
 }
 
 template <typename K, typename V>
-bool write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashed)
+std::pair<bool,bool> write(schema::DatabaseSet const& parent, K key, V& value, bool hashed)
 {
     /**
-     * Returns true when the value is not present in the DB.
+     * There are cases where the write is not required. We could open a write transaction
+     * do a write, and if that is a noop cancel the transaction. However, write transactions
+     * block threads. Hence when the majority of the write transactions become noops, we
+     * would like to open a read transaction, confirm whether we need a write, and open 
+     * a write transaction to do so. 
+     * 
+     * Also we cannot open in here a read transaction, followed by a write when needed,
+     * as that implies a nested transaction, so the parent need to be a write transaction.
+     * And we cannot pass a read and a separate write transaction, as that implies 
+     * that both read and write transactions will be active at any given time, defeating
+     * the purpose.
+     * 
+     * In order to avoid repeating/spliting the logic, we can call this function with a
+     * read-only transaction, effectively doing a dry-run.
+     * 
+     * @return
+     * A pair of booleans
+     * [0] true when a write is needed (ro txn), or a write was performed (rw txn).
+     * [1] true when the value is not present in the DB.
      */
     bool present = false;
     int rc = 0;
@@ -775,8 +791,8 @@ bool write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
     {
         list::end::read(parent.list_, head, end);
         present = list::holds(parent.list_, head, value, hash.head());
-        if(present) return !present;  // noop
-        else
+        if(present) return {false,!present};  // noop
+        else if(!parent.is_readonly())
             extensions::graphdb::refcount::decrease(parent, key, head);
     }
 
@@ -795,12 +811,13 @@ bool write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
             };
     hash::visit(parent.hash_, value, visitor);
 
-    if(!head.head())  // The value is not in the DB.
+    if(!head.head() && !parent.is_readonly())  // The value is not in the DB.
         extensions::graphdb::list::head::find(parent.list_, head);
 
-    extensions::graphdb::refcount::increase(parent, key, head);
+    if(!parent.is_readonly())
+        extensions::graphdb::refcount::increase(parent, key, head);
 
-    if(hashed)  // when hashed, do not write duplicates
+    if(hashed && !parent.is_readonly())  // when hashed, do not write duplicates
     {
         // remove the old hash/key pair
         schema::list_key_t old = {end.hash(), 0};
@@ -821,8 +838,9 @@ bool write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
         hash::write(parent.hash_, hash, key);
     }
 
-    extensions::graphdb::list::write(parent.list_, head, value);
-    return !present;
+    if(!parent.is_readonly())
+        extensions::graphdb::list::write(parent.list_, head, value);
+    return {true, !present};
 }
 
 template <typename K>
@@ -858,6 +876,7 @@ void purge(schema::DatabaseSet const& parent, K const& key)
     extensions::graphdb::refcount::decrease(parent, key, iter);
 
 }
+
 }  // namespace feature
 
 namespace bitarray  // Transactions that manage the bitmaps.

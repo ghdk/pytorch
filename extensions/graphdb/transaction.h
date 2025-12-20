@@ -32,6 +32,17 @@ public:
     DatabaseSet(DatabaseSet&&) = delete;
     DatabaseSet& operator=(DatabaseSet const&) = delete;
     DatabaseSet& operator=(DatabaseSet&&) = delete;
+
+public:
+    bool is_readonly() const
+    {
+        return extensions::iter::in(std::array<unsigned int,2>{extensions::graphdb::flags::txn::READ, extensions::graphdb::flags::txn::NESTED_RO}, main_.txn_.flags_);
+    }
+
+    bool is_readonly()
+    {
+        return static_cast<struct DatabaseSet const*>(this)->is_readonly();
+    }
 };
 
 /**
@@ -75,7 +86,6 @@ public:
     , graph_(txn_,   GRAPH_FEATURE,    extensions::graphdb::flags::db::WRITE)
     , adj_mtx_(txn_, ADJACENCY_MATRIX, extensions::graphdb::flags::db::WRITE)
     , vtx_set_(txn_, VERTEX_SET,       extensions::graphdb::flags::db::WRITE)
-    , flags_{flags}
     {}
 
     TransactionNode(TransactionNode const& parent, unsigned int flags)  // create a child node
@@ -86,13 +96,12 @@ public:
     , graph_(txn_,   parent.graph_)
     , adj_mtx_(txn_, parent.adj_mtx_)
     , vtx_set_(txn_, parent.vtx_set_)
-    , flags_{flags}
     {}
 
     ~TransactionNode()
     {
         int rc;
-        switch(flags_)
+        switch(txn_.flags_)
         {
         case extensions::graphdb::flags::txn::WRITE:
         case extensions::graphdb::flags::txn::NESTED_RW:
@@ -103,7 +112,7 @@ public:
             assertm(MDB_SUCCESS == (rc = txn_.abort()), rc);
             break;
         default:
-            assertm(false, flags_);
+            assertm(false, txn_.flags_);
         }
     }
 
@@ -113,8 +122,16 @@ public:
     TransactionNode& operator=(TransactionNode const&) = delete;
     TransactionNode& operator=(TransactionNode&&) = delete;
 
-private:
-    unsigned int flags_;
+public:
+    bool is_readonly() const
+    {
+        return extensions::iter::in(std::array<unsigned int,2>{extensions::graphdb::flags::txn::READ, extensions::graphdb::flags::txn::NESTED_RO}, txn_.flags_);
+    }
+
+    bool is_readonly()
+    {
+        return static_cast<struct TransactionNode const*>(this)->is_readonly();
+    }
 };
 
 class PyTransactionNode

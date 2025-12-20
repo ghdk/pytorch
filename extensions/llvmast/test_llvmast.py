@@ -10,7 +10,6 @@ import lmdb
 import traceback
 from inspect import currentframe, getframeinfo
 from bitarray import bitarray
-from graph import graph
 from graphdb import graphdb
 from llvmast import llvmast
 import cached_cflags
@@ -44,6 +43,7 @@ class Test(unittest.TestCase):
             cmd = ['clang'] + CFLAGS + ['-Xclang', '-ast-dump', '-fsyntax-only', '-fno-diagnostics-color'] + ['-c', f"{self._top}/llvmast.cc"]
             print(cmd, file=log)
             subprocess.run(cmd, stdout=log, stderr=log, check=True)
+            # NB. the exception on rc != 0 allows us to keep the log file with the AST
 
     @rm_test_dir
     def test_db_has_record_decl(self):
@@ -66,7 +66,8 @@ int main(int argc, char** argv)
         llvmast.llvmast(['-c', maincc] + ['--'] + CFLAGS)
         
         with graphdb.TransactionNode(llvmast.DB_FILE) as txn:
-            g = graph.make_graph_db(txn, llvmast.GRAPH)
+            graph_i = graphdb.make_graph_vtx_set_key(llvmast.GRAPH)
+            graphdb.graph.init(txn, graph_i)
             
             # Traverse all the vertices of the graph, and keep RECORD_DECLs.
     
@@ -93,8 +94,8 @@ int main(int argc, char** argv)
                     ctx.reduce.append(ctx.name)
                     ctx.vertices.append(vtx)
                 return 0
-                
-            g.vertices(callback, 0,0,1)
+
+            graphdb.graph.vertices(txn, graph_i, callback)
             self.assertEqual(['Bar', 'Cunion', 'Foo'], sorted(ctx.reduce), ctx.reduce)
             
             # Use the hashes to get the vertices from the values.
@@ -148,7 +149,8 @@ int main(int argc, char** argv)
         llvmast.llvmast(['-c', maincc] + ['--'] + CFLAGS)
 
         with graphdb.TransactionNode(llvmast.DB_FILE) as txn:
-            g = graph.make_graph_db(txn, llvmast.GRAPH)
+            graph_i = graphdb.make_graph_vtx_set_key(llvmast.GRAPH)
+            graphdb.graph.init(txn, graph_i)
             
             class ctx: pass        
             def head_cb(iter, key):
