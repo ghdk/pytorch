@@ -96,3 +96,7 @@ generated during the build step.
 
 - P. Prosser. Hybrid Algorithms for the Constraint Satisfaction Problem.
   Computational Intelligence. 1993.
+- H. Anton, C. Rorres, A. Kaul. Elementary Linear Algebra.
+- Wen-mei W. Hwu, David B. Kirk, Izzat El Hajj. Programming Massively Parallel Processors.
+- M. P. Deisenroth, A. A. Faisal, and C. S. Ong. Mathematics for Machine Learning.
+- R. Diestel. Graph Theory.
