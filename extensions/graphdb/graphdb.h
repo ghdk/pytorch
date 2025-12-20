@@ -820,6 +820,44 @@ void write(schema::DatabaseSet const& parent, K const& key, V& value, bool hashe
 
 }  // namespace feature
 
+namespace graph  // Transactions that manage the graph.
+{
+
+    static void init(schema::TransactionNode const& parent, schema::graph_vtx_set_key_t::value_type graph)
+    {
+        /*
+         * Initialise the graph in the DB, by creating only the vertex set. The
+         * ADJ MTX is sparse. When the graph is present, do nothing.
+         */
+
+        int rc = 0;
+
+        schema::TransactionNode session{parent, graphdb::flags::txn::NESTED_RW};
+
+        {
+            extensions::graphdb::Cursor cursor(session.txn_, session.vtx_set_.main_);
+
+            using iter_t = extensions::graphdb::schema::graph_vtx_set_key_t;
+            using hint_t = extensions::graphdb::schema::list_key_t;
+            using value_t = uint8_t;
+
+            iter_t iter = {graph};
+            hint_t hint = {0,0};
+            std::array<value_t, extensions::graphdb::schema::page_size> page = {0};
+
+            rc = cursor.get(iter, hint, MDB_cursor_op::MDB_SET);
+            if(MDB_SUCCESS == rc) goto COMMIT;
+
+            extensions::graphdb::list::head::find(session.vtx_set_.list_, hint);
+            extensions::graphdb::refcount::increase(session.vtx_set_, iter, hint);
+            extensions::graphdb::list::expand(session.vtx_set_.list_, hint, page);
+        }
+    COMMIT:
+        return;
+    }
+    
+}  // namespace graph
+
 namespace bitarray  // Transactions that manage the bitmaps.
 {
     static std::tuple<schema::list_key_t::value_type, schema::list_key_t::value_type, schema::list_key_t::value_type>

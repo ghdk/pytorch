@@ -490,35 +490,7 @@ END:
     , adj_mtx_key_{}
     , adj_mtx_iter_{}
     {
-        /*
-         * Initialise the graph in the DB, by creating only the vertex set. The
-         * ADJ MTX is sparse.
-         */
-
-        int rc = 0;
-
-        graphdb::schema::TransactionNode child{parent_, graphdb::flags::txn::NESTED_RW};
-
-        {
-            extensions::graphdb::Cursor cursor(child.txn_, child.vtx_set_.main_);
-
-            using iter_t = extensions::graphdb::schema::graph_vtx_set_key_t;
-            using hint_t = extensions::graphdb::schema::list_key_t;
-            using value_t = uint8_t;
-
-            iter_t iter = {graph};
-            hint_t hint = {0,0};
-            std::array<value_t, extensions::graphdb::schema::page_size> page = {0};
-
-            rc = cursor.get(iter, hint, MDB_cursor_op::MDB_SET);
-            if(MDB_SUCCESS == rc) goto COMMIT;
-
-            extensions::graphdb::list::head::find(child.vtx_set_.list_, hint);
-            extensions::graphdb::refcount::increase(child.vtx_set_, iter, hint);
-            extensions::graphdb::list::expand(child.vtx_set_.list_, hint, page);
-        }
-    COMMIT:
-        return;
+        extensions::graphdb::graph::init(parent, graph);
     }
 
 private:
