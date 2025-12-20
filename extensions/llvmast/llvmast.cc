@@ -23,9 +23,9 @@ extern "C"
 #include "../graphdb/envpool.h"
 #include "../graphdb/transaction.h"
 #include "../graphdb/graphdb.h"
-#include "../graphdb/envpool.h"
 #include "../graph/feature.h"
 #include "../graph/graph.h"
+#include "../graphdb/envpool.h"
 
 #include "schema.h"
 

@@ -212,9 +212,12 @@ setup(name='extensions',
                                          'graphdb/graphdb.cc',
                                          'graphdb/envpool.cc'
                                      ],
-                                     runtime_library_dirs = [] + lmdb_conf_flags[1],
-                                     extra_compile_args=extra_cpp_flags + lmdb_conf_flags[0],
-                                     extra_link_args= extra_ld_flags + lmdb_conf_flags[2]),
+                                     runtime_library_dirs = ['$ORIGIN/../graph'] + lmdb_conf_flags[1],
+                                     library_dirs = [] + ([f'{buildlib()}/graph'] if IS_LINUX else []),
+                                     extra_compile_args = extra_cpp_flags + lmdb_conf_flags[0],
+                                     extra_link_args = extra_ld_flags
+                                                     + (['-l:graph.so'] if IS_LINUX else [])
+                                                     + lmdb_conf_flags[2]),
       ] + ([
           cpp_extension.CppExtension('llvmast.llvmast',
                                      sources=['llvmast/llvmast.cc'],

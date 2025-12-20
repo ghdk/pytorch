@@ -1,6 +1,8 @@
 #ifndef EXTENSIONS_GRAPHDB_GRAPHDB_H
 #define EXTENSIONS_GRAPHDB_GRAPHDB_H
 
+namespace extensions { namespace graph { struct Graph; }}
+
 namespace extensions { namespace graphdb {
 
 namespace list  // Transactions that manage the linked list DBs.
@@ -54,7 +56,8 @@ void find(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
 
         while(true)
         {
-            K query = {ret + step, 0};
+            // Every list has an end node, and an empty list has only an end node.
+            K query = {ret + step, schema::LIST_TAIL_MAX};
             if(query.head() <= max && query.head() != schema::RESERVED)
             {
                 mdb_view<K> iter_k(&query, 1);
@@ -305,7 +308,19 @@ void read(graphdb::Database const& parent, K& head, V& value)
 {
     const graphdb::mdb_view<K> head_v(&head, 1);
 
-    if constexpr(extensions::is_contiguous<V>::value)
+    if constexpr(std::is_same_v<V, torch::Tensor>)
+    {
+        assert(value.is_contiguous());
+        torch::Tensor tensor = value;
+        if(torch::kUInt8 == tensor.dtype())
+        {
+            mdb_view<uint8_t> value_v(tensor.data_ptr<uint8_t>(), tensor.numel());
+            read(parent, head_v, value_v);
+        }
+        else
+            assertm(false, tensor.dtype());
+    }
+    else if constexpr(extensions::is_contiguous<V>::value)
     {
         graphdb::mdb_view<typename V::value_type> value_v(value.data(), value.size());
         read(parent, head_v, value_v);
@@ -1236,6 +1251,13 @@ namespace graph  // Transactions that manage the graph.
         };
         vertices(parent, graph, vtx_set_visitor);
     }
+
+    void read(extensions::graphdb::Environment& env,
+              extensions::graph::Graph graph,
+              schema::graph_vtx_set_key_t graph_i);
+    void write(extensions::graphdb::Environment& env,
+               extensions::graph::Graph graph,
+               schema::graph_vtx_set_key_t graph_i);
 }  // namespace graph
 
 namespace stat

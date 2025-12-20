@@ -162,8 +162,8 @@
  * the list and the size of the buffer that is held.
  *
  * We can have more than one graphs in the DB, each graph identified by the
- * `GRAPH INDEX`.
- *
+ * `GRAPH INDEX`. All graph transformations are first captured in the DB,
+ * and loaded in memory when needed.
  */
 
 namespace extensions { namespace graphdb

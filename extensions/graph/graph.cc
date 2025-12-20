@@ -14,6 +14,7 @@ extern "C"
 #include "feature.h"
 #include "graph.h"
 
+
 extensions::graph::Graph::operator std::string()
 {
     std::string ret = "";

@@ -20,16 +20,16 @@ public:
     using vertices_visitor_t = std::function<void(feature::index_t)>;
     using edges_visitor_t = std::function<void(feature::index_t, feature::index_t)>;
 
-    void vertices(vertices_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1);
+    VISIBLE void vertices(vertices_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1);
     void vertices(vertices_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1) const;
 
-    void edges(edges_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1);
+    VISIBLE void edges(edges_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1);
     void edges(edges_visitor_t visitor, size_t start = 0, size_t stop = 0, size_t step = 1) const;
 
-    bool vertex(feature::index_t i);
+    VISIBLE bool vertex(feature::index_t i);
     VISIBLE feature::index_t vertex(feature::index_t index, bool truth);
-    bool edge(feature::index_t i, feature::index_t j);
-    void edge(feature::index_t i, feature::index_t j, bool truth);
+    VISIBLE bool edge(feature::index_t i, feature::index_t j);
+    VISIBLE void edge(feature::index_t i, feature::index_t j, bool truth);
 
 public:
     Graph()
@@ -68,6 +68,14 @@ private:
      */
     torch::Tensor vertices_;
     torch::Tensor edges_;
+
+public:
+    friend void extensions::graphdb::graph::read(extensions::graphdb::Environment& env,
+                                                 extensions::graph::Graph graph,
+                                                 extensions::graphdb::schema::graph_vtx_set_key_t graph_i);
+    friend void extensions::graphdb::graph::write(extensions::graphdb::Environment& env,
+                                                  extensions::graph::Graph graph,
+                                                  extensions::graphdb::schema::graph_vtx_set_key_t graph_i);
 
 #ifdef PYDEF
 public:

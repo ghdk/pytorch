@@ -11,8 +11,8 @@ import lmdb
 import random
 import traceback
 from bitarray import bitarray
-from graphdb import graphdb
 from graph import graph
+from graphdb import graphdb
 
 RAMFS = os.environ.get("RAMFS", "")
 
@@ -419,3 +419,7 @@ class Test(unittest.TestCase):
     @rm_test_dir
     def test_graphdb_is_available(self):
         graphdb.test.test_graphdb_is_available()
+
+    @rm_test_dir
+    def test_graphdb_graph_read_write(self):
+        graphdb.test.test_graphdb_graph_read_write()

@@ -1,7 +1,6 @@
 #include "../system.h"
 #include "../iter/iter.h"
 #include "../bitarray/bitarray.h"
-#include "../graph/feature.h"
 
 extern "C"
 {
@@ -13,6 +12,100 @@ extern "C"
 #include "envpool.h"
 #include "transaction.h"
 #include "graphdb.h"
+#include "../graph/feature.h"
+#include "../graph/graph.h"
+
+void extensions::graphdb::graph::read(extensions::graphdb::Environment& env,
+                                      extensions::graph::Graph graph,
+                                      extensions::graphdb::schema::graph_vtx_set_key_t graph_i)
+{
+    int rc = 0;
+    using hint_t = extensions::graphdb::schema::list_key_t;
+    using end_t  = extensions::graphdb::schema::list_end_t;
+
+    {
+        extensions::graphdb::schema::TransactionNode session{env, extensions::graphdb::flags::txn::READ};
+
+        hint_t head = {0,0};
+        end_t end;
+
+        rc = session.vtx_set_.main_.get(graph_i, head);
+        assertm(MDB_SUCCESS == rc, rc);
+        extensions::graphdb::list::end::read(session.vtx_set_.list_, head, end);
+
+        graph.vertices_.resize_(end.bytes());
+        graph.vertices_.zero_();
+        extensions::graphdb::list::read(session.vtx_set_.list_, head, graph.vertices_);
+
+        // Since we have the end node of the vtx set, resize the adj mtx as well.
+        graph.edges_.resize_({(int64_t)end.bytes() * CHAR_BIT, (int64_t)end.bytes()});  // h,w
+        graph.edges_.zero_();
+    }
+
+    {
+        // The adj mtx has been resized and zeroed above.
+        auto kernel = [&](schema::graph_vtx_set_key_t::value_type vtx)
+        {
+            // Large transactions raise errors, see the notes in schema.h. Hence
+            // we read one row of the adj mtx at a time, and we open a new
+            // transaction for each read.
+            extensions::graphdb::schema::TransactionNode session{env, extensions::graphdb::flags::txn::READ};
+            
+            extensions::graphdb::schema::graph_adj_mtx_key_t key = {graph_i.graph(), vtx};
+            hint_t head = {0,0};
+            rc = session.adj_mtx_.main_.get(key, head);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+            if(MDB_NOTFOUND == rc) return;
+
+            auto slice = graph.edges_.index(at::indexing::TensorIndex{(int64_t)vtx});
+            extensions::graphdb::list::read(session.adj_mtx_.list_, head, slice);
+        };
+        graph.vertices(kernel);
+    }
+}
+
+void extensions::graphdb::graph::write(extensions::graphdb::Environment& env,
+                                       extensions::graph::Graph graph,
+                                       extensions::graphdb::schema::graph_vtx_set_key_t graph_i)
+{
+    int rc = 0;
+    using hint_t = extensions::graphdb::schema::list_key_t;
+
+    {
+        extensions::graphdb::schema::TransactionNode session{env, extensions::graphdb::flags::txn::WRITE};
+
+        hint_t head = {0,0};
+
+        rc = session.vtx_set_.main_.get(graph_i, head);
+        if(MDB_NOTFOUND == rc)
+            extensions::graphdb::list::head::find(session.vtx_set_.list_, head);
+        extensions::graphdb::refcount::increase(session.vtx_set_, graph_i, head);
+        extensions::graphdb::list::write(session.vtx_set_.list_, head, graph.vertices_);
+    }
+
+    {
+        // The adj mtx has been resized and zeroed above.
+        auto kernel = [&](schema::graph_vtx_set_key_t::value_type vtx)
+        {
+            // Large transactions raise errors, see the notes in schema.h. Hence
+            // we read one row of the adj mtx at a time, and we open a new
+            // transaction for each read.
+            extensions::graphdb::schema::TransactionNode session{env, extensions::graphdb::flags::txn::WRITE};
+            
+            extensions::graphdb::schema::graph_adj_mtx_key_t key = {graph_i.graph(), vtx};
+            hint_t head = {0,0};
+            rc = session.adj_mtx_.main_.get(key, head);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+            if(MDB_NOTFOUND == rc)
+                extensions::graphdb::list::head::find(session.adj_mtx_.list_, head);
+
+            auto slice = graph.edges_.index(at::indexing::TensorIndex{(int64_t)vtx});
+            extensions::graphdb::refcount::increase(session.adj_mtx_, key, head);
+            extensions::graphdb::list::write(session.adj_mtx_.list_, head, slice);
+        };
+        graph.vertices(kernel);
+    }
+}
 
 // The IDE doesn't like the PYBIND11_MODULE macro, hence we redirect it
 // to this function which is easier to read.
@@ -455,6 +548,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                            {
                                if(schema::RESERVED == h) continue;
                                hint.head() = h;
+                               hint.tail() = schema::LIST_TAIL_MAX;
                                value.graph() = 0xba5eba11;
                                assertm(MDB_SUCCESS == (rc = dbE.put(hint, value, flags::put::DEFAULT)), rc);
                            }
@@ -1317,6 +1411,52 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                 assert(index_confirmed);
                 assert(vertex_confirmed);
+            }
+        );
+
+        mt.def("test_graphdb_graph_read_write",
+            +[]{
+                std::string filename = "./test.db";
+                int rc = 0;
+
+                const extensions::graphdb::schema::meta_page_t page_sz = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
+                std::random_device r;
+                std::default_random_engine e(r());
+                std::uniform_int_distribution<extensions::graphdb::schema::graph_vtx_set_key_t::value_type> d(0, page_sz-1);
+
+                std::array<extensions::graphdb::schema::graph_vtx_set_key_t::value_type, 4> rnd_vertices;
+                for(auto& i : rnd_vertices)
+                    i = d(e);
+
+                extensions::graphdb::Environment& env = extensions::graphdb::EnvironmentPool::environment(filename);
+
+                extensions::graphdb::schema::graph_vtx_set_key_t graph_i = {0xACE};
+
+                {
+                    extensions::graph::Graph graph;
+                    for(auto i : rnd_vertices)
+                    {
+                        graph.vertex(i, true);
+                        graph.edge(i,i, true);
+                    }
+                    extensions::graphdb::graph::write(env, graph, graph_i);
+                }
+
+                {
+                    extensions::graph::Graph graph;
+                    extensions::graphdb::graph::read(env, graph, graph_i);
+                    size_t count = 0;
+                    graph.vertices([&](extensions::graph::feature::index_t i)
+                    {
+                        count += 1;
+                        assertm(extensions::iter::in(rnd_vertices, i), i);
+                    });
+                    for(auto i : rnd_vertices)
+                    {
+                        assertm(graph.vertex(i), i, extensions::dump(rnd_vertices));
+                        assertm(graph.edge(i,i), i, extensions::dump(rnd_vertices));
+                    }
+                }
             }
         );
     }
