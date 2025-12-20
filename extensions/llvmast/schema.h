@@ -13,18 +13,19 @@ constexpr graphdb::schema::graph_vtx_set_key_t GRAPH = {0};
 namespace feature
 {
 constexpr graphdb::schema::vertex_feature_key_t::value_type UNDEF     = {0};
-constexpr graphdb::schema::vertex_feature_key_t::value_type TYPE      = {1};
+constexpr graphdb::schema::vertex_feature_key_t::value_type RULE      = {1};
 constexpr graphdb::schema::vertex_feature_key_t::value_type NAME      = {2};
+constexpr graphdb::schema::vertex_feature_key_t::value_type FILE      = {3};
 }  // namespace feature
 
-namespace type
+namespace rule
 {
-// The values of the TYPE feature.
+// The values of the RULE feature.
 constexpr graphdb::schema::vertex_feature_key_t::value_type UNDEF         = {0};
-constexpr graphdb::schema::vertex_feature_key_t::value_type FILE          = {1};
-constexpr graphdb::schema::vertex_feature_key_t::value_type RECORD_DECL   = {2};
-constexpr graphdb::schema::vertex_feature_key_t::value_type FUNCTION_DECL = {3};
-}  // namespace type
+constexpr graphdb::schema::vertex_feature_key_t::value_type RECORD_DECL   = {1};
+constexpr graphdb::schema::vertex_feature_key_t::value_type FUNCTION_DECL = {2};
+constexpr graphdb::schema::vertex_feature_key_t::value_type PARM_VAR_DECL = {3};
+}  // namespace rule
 
 }}}  // namespace extensions::rsse::schema
 

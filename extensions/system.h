@@ -108,6 +108,13 @@ namespace extensions
     template<typename T>
     using accessor_held_t = typename accessor_held<T>::type;
 
+#ifndef __cpp_lib_starts_ends_with
+    static bool ends_with(const std::string_view str, const std::string_view ending)
+    {
+        return (str.length() >= ending.length() &&
+                std::equal(ending.rbegin(), ending.rend(), str.rbegin()));
+    }
+#endif
 }  // namespace extensions
 
 #endif  // SYSTEM_H

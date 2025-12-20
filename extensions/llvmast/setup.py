@@ -7,6 +7,7 @@ import pickle
 import os
 import sys
 from setuptools import setup, Command
+from contextlib import redirect_stderr
 
 import torch
 from bitarray import bitarray
@@ -73,18 +74,19 @@ class clean(Command):
             if "llvmast" in str(child) and child.suffix in [".log", ".prof"]: child.unlink()
 
 def kernel(idx, step, log):
-    sys.stderr = open(log, 'w')
-    print("pid", mp.current_process().pid, file=sys.stderr)
     ret = None
-    with DB() as db:
-        indexlist = sorted([k for k in db.keys() if k not in ['hdr', 'src', 'skip', 'all']])
-        ret = [0] * len(indexlist)
-        for i in range(idx, len(indexlist), step):
-            print(f"[{idx}:{step}:{i}/{len(indexlist)}]", indexlist[i], file=sys.stderr, flush=True)
-            pth = Path(indexlist[i])
-            if pth.suffix in db['src'] and (db['all'] or db[str(pth)]['cc_mtime'] != db[str(pth)]['st_mtime']):
-                llvmast.llvmast(['-c', str(pth)] + ['--'] + cached_cflags.CFLAGS)
-            ret[i] = db[str(pth)]['st_mtime']
+    with open(log, "a") as err:
+        with redirect_stderr(err):
+            print("pid", mp.current_process().pid, file=sys.stderr)
+            with DB() as db:
+                indexlist = sorted([k for k in db.keys() if k not in ['hdr', 'src', 'skip', 'all']])
+                ret = [0] * len(indexlist)
+                for i in range(idx, len(indexlist), step):
+                    print(f"[{idx}:{step}:{i}/{len(indexlist)}]", indexlist[i], file=sys.stderr, flush=True)
+                    pth = Path(indexlist[i])
+                    if pth.suffix in db['src'] and (db['all'] or db[str(pth)]['cc_mtime'] != db[str(pth)]['st_mtime']):
+                        llvmast.llvmast(['-c', str(pth)] + ['--'] + cached_cflags.CFLAGS)
+                    ret[i] = db[str(pth)]['st_mtime']
     return ret
 
 class prepare(Command):

@@ -46,7 +46,7 @@ unittest::
 
 lldb::
 
-    lldb --source-before-file ../.lldbinit -O "breakpoint set -r 'LLT<.*>::compute'" -o "run" --  python -B ...
+    lldb --source-before-file ../.lldbinit -O "breakpoint set -r 'LLT<.*>::compute'" -o 'run' -o 'continue' -o 'bt all' -o 'quit' --  python -B ...
 
 gdb::
 

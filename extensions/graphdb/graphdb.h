@@ -202,6 +202,7 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
 
     assertm(0 != head.begin()->head(), head.begin()->head());
     assertm(0 == head.begin()->tail(), head.begin()->tail());
+    assert(0 < value.size());
 
     int rc = 0;
 
@@ -209,6 +210,10 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
     mdb_view<K> iter_k(&iter, 1);
     mdb_view<V> iter_v;
     size_t chunk = extensions::graphdb::schema::page_size / sizeof(V);  // number of items in a page
+
+    extensions::graphdb::schema::list_end_t end;
+    end::read(parent, iter, end);
+    assertm(1 >= end.refcount(), iter, end);  // ie. do not overwrite a list that has more than one references
 
     for(typename K::value_type i = 0; i < schema::LIST_TAIL_MAX; i++)
     {
@@ -224,9 +229,6 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
     iter.tail() += 1;
     purge(parent, iter);
 
-    extensions::graphdb::schema::list_end_t end;
-    end::read(parent, iter, end);
-    assert(0 < end.refcount());
     end.length() = iter.tail();
     end.hash() = std::hash<graphdb::mdb_view<V>>{}(value);
     end.bytes() = value.size() * sizeof(V);
@@ -370,7 +372,7 @@ bool holds(graphdb::Database const& parent, graphdb::mdb_view<K> head, graphdb::
             iter.tail() = i;
             rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
             if(i == head.begin()->tail())
-                assertm(MDB_SUCCESS == rc ,rc);  // node must be in the DB.
+                assertm(MDB_SUCCESS == rc, rc, iter);  // the head must be in the DB.
             if(MDB_NOTFOUND == rc) break;
             if(iter.head() != head.begin()->head()) break;
             ret &= 0 == memcmp((void*)(value.data() + i * chunk), (void*)(iter_v.data()), iter_v.size() * sizeof(V));
@@ -709,8 +711,8 @@ void write(graphdb::Database const& parent, K& hash, V& key)
 template<typename K, typename = schema::is_key_t<K>>
 using visitor_t = std::function<int(schema::list_key_t, K)>;
 
-template<typename V, typename K, schema::is_list_key_t<V>* = nullptr, schema::is_key_t<K>* = nullptr>
-int visit(graphdb::Database const& parent, V& hash, visitor_t<K> visitor)
+template<typename K, schema::is_key_t<K>* = nullptr>
+int visit(graphdb::Database const& parent, graphdb::schema::list_key_t hash, visitor_t<K> visitor)
 {
     int rc = MDB_SUCCESS;
 
@@ -727,14 +729,6 @@ int visit(graphdb::Database const& parent, V& hash, visitor_t<K> visitor)
     }
 
     return rc;
-}
-
-template<typename V, typename K, schema::is_not_list_key_t<V>* = nullptr, schema::is_key_t<K>* = nullptr>
-int visit(graphdb::Database const& parent, V& value, visitor_t<K> visitor)
-{
-    graphdb::schema::list_key_t hash = {extensions::graphdb::hash::make(value), 0};
-
-    return visit(parent, hash, visitor);
 }
 }  // namespace hash
 
@@ -769,29 +763,8 @@ int visit(schema::DatabaseSet const& parent, K& key, visitor_t visitor)
 }
 
 template <typename K, typename V>
-std::pair<bool,bool> write(schema::DatabaseSet const& parent, K key, V& value, bool hashed)
+void write(schema::DatabaseSet const& parent, K key, V& value)
 {
-    /**
-     * There are cases where the write is not required. We could open a write transaction
-     * do a write, and if that is a noop cancel the transaction. However, write transactions
-     * block threads. Hence when the majority of the write transactions become noops, we
-     * would like to open a read transaction, confirm whether we need a write, and open 
-     * a write transaction to do so. 
-     * 
-     * Also we cannot open in here a read transaction, followed by a write when needed,
-     * as that implies a nested transaction, so the parent need to be a write transaction.
-     * And we cannot pass a read and a separate write transaction, as that implies 
-     * that both read and write transactions will be active at any given time, defeating
-     * the purpose.
-     * 
-     * In order to avoid repeating/spliting the logic, we can call this function with a
-     * read-only transaction, effectively doing a dry-run.
-     * 
-     * @return
-     * A pair of booleans
-     * [0] true when a write is needed (ro txn), or a write was performed (rw txn).
-     * [1] true when the value is not present in the DB.
-     */
     bool present = false;
     int rc = 0;
 
@@ -805,10 +778,16 @@ std::pair<bool,bool> write(schema::DatabaseSet const& parent, K key, V& value, b
     if(MDB_SUCCESS == rc)
     {
         list::end::read(parent.list_, head, end);
+        // Either the value is hashed and refcount >= 1, or
+        // the value is not hashed and refcount == 1.
+        assertm((end.hash() && 1 <= end.refcount()) || 1 == end.refcount(), end);
         present = list::holds(parent.list_, head, value, hash.head());
-        if(present) return {false,!present};  // noop
-        else if(!parent.is_readonly())
+        if(present) return;  // noop
+        else
+        {
             extensions::graphdb::refcount::decrease(parent, key, head);
+            head = {schema::RESERVED, 0};
+        }
     }
 
     // See if the value is already in the DB.
@@ -824,15 +803,16 @@ std::pair<bool,bool> write(schema::DatabaseSet const& parent, K key, V& value, b
                                  return  present ? MDB_SUCCESS : MDB_NOTFOUND;
                              });
             };
-    hash::visit(parent.hash_, value, visitor);
+    hash::visit(parent.hash_, hash, visitor);
 
-    if(!head.head() && !parent.is_readonly())  // The value is not in the DB.
+    if(!head.head())  // The value is not in the DB.
+    {
         extensions::graphdb::list::head::find(parent.list_, head);
+        extensions::graphdb::list::write(parent.list_, head, value);
+    }
 
-    if(!parent.is_readonly())
-        extensions::graphdb::refcount::increase(parent, key, head);
+    extensions::graphdb::refcount::increase(parent, key, head);
 
-    if(hashed && !parent.is_readonly())  // when hashed, do not write duplicates
     {
         // remove the old hash/key pair
         schema::list_key_t old = {end.hash(), 0};
@@ -852,10 +832,6 @@ std::pair<bool,bool> write(schema::DatabaseSet const& parent, K key, V& value, b
         // add the new hash/key pair
         hash::write(parent.hash_, hash, key);
     }
-
-    if(!parent.is_readonly())
-        extensions::graphdb::list::write(parent.list_, head, value);
-    return {true, !present};
 }
 
 template <typename K>

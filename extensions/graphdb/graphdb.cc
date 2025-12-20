@@ -125,25 +125,25 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
     auto pykd = py::class_<extensions::graphdb::schema::double_key_t, extensions::ptr_t<extensions::graphdb::schema::double_key_t>>(m, "__double_key__");
     auto pykt = py::class_<extensions::graphdb::schema::triple_key_t, extensions::ptr_t<extensions::graphdb::schema::triple_key_t>>(m, "__triple_key__");
 
-    m.def("make_list_key"          , +[](typename extensions::graphdb::schema::double_key_t::value_type a,
-                                         typename extensions::graphdb::schema::double_key_t::value_type b)
-                                         { return extensions::graphdb::schema::double_key_t({a, b}); });
-    m.def("make_vertex_feature_key", +[](typename extensions::graphdb::schema::triple_key_t::value_type a,
-                                         typename extensions::graphdb::schema::triple_key_t::value_type b,
-                                         typename extensions::graphdb::schema::triple_key_t::value_type c)
-                                         { return extensions::graphdb::schema::triple_key_t({a, b, c}); });
-    m.def("make_edge_feature_key"  , +[](typename extensions::graphdb::schema::triple_key_t::value_type a,
-                                         typename extensions::graphdb::schema::triple_key_t::value_type b,
-                                         typename extensions::graphdb::schema::triple_key_t::value_type c)
-                                         { return extensions::graphdb::schema::triple_key_t({a, b, c}); });
-    m.def("make_graph_feature_key" , +[](typename extensions::graphdb::schema::double_key_t::value_type a,
-                                         typename extensions::graphdb::schema::double_key_t::value_type b)
-                                         { return extensions::graphdb::schema::double_key_t({a, b}); });
-    m.def("make_graph_adj_mtx_key" , +[](typename extensions::graphdb::schema::double_key_t::value_type a,
-                                         typename extensions::graphdb::schema::double_key_t::value_type b)
-                                         { return extensions::graphdb::schema::double_key_t({a, b}); });
-    m.def("make_graph_vtx_set_key" , +[](typename extensions::graphdb::schema::single_key_t::value_type a)
-                                         { return extensions::graphdb::schema::single_key_t({a}); });
+    m.def("make_list_key"          , +[](typename extensions::graphdb::schema::double_key_t::value_type head,
+                                         typename extensions::graphdb::schema::double_key_t::value_type tail)
+                                         { return extensions::graphdb::schema::double_key_t({head, tail}); });
+    m.def("make_vertex_feature_key", +[](typename extensions::graphdb::schema::triple_key_t::value_type graph,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type vtx,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type attr)
+                                         { return extensions::graphdb::schema::triple_key_t({graph, vtx, attr}); });
+    m.def("make_edge_feature_key"  , +[](typename extensions::graphdb::schema::triple_key_t::value_type graph,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type edge,
+                                         typename extensions::graphdb::schema::triple_key_t::value_type attr)
+                                         { return extensions::graphdb::schema::triple_key_t({graph, edge, attr}); });
+    m.def("make_graph_feature_key" , +[](typename extensions::graphdb::schema::double_key_t::value_type graph,
+                                         typename extensions::graphdb::schema::double_key_t::value_type attr)
+                                         { return extensions::graphdb::schema::double_key_t({graph, attr}); });
+    m.def("make_graph_adj_mtx_key" , +[](typename extensions::graphdb::schema::double_key_t::value_type graph,
+                                         typename extensions::graphdb::schema::double_key_t::value_type vtx)
+                                         { return extensions::graphdb::schema::double_key_t({graph, vtx}); });
+    m.def("make_graph_vtx_set_key" , +[](typename extensions::graphdb::schema::single_key_t::value_type graph)
+                                         { return extensions::graphdb::schema::single_key_t({graph}); });
 
     m.def("view_list_key"          , +[](extensions::graphdb::schema::double_key_t key){ return std::tuple{key.data()[0], key.data()[1]}; });
     m.def("view_vertex_feature_key", +[](extensions::graphdb::schema::triple_key_t key){ return std::tuple{key.data()[0], key.data()[1], key.data()[2]}; });
@@ -163,7 +163,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                 extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::vertex_feature_key_t> pyfunc)
                    {
                         std::string_view data_v(data);
-                        extensions::graphdb::hash::visit(txn->txn().vertex_.hash_, data_v, pyfunc);
+                        extensions::graphdb::schema::list_key_t hash = {extensions::graphdb::hash::make(data_v), 0};
+                        extensions::graphdb::hash::visit(txn->txn().vertex_.hash_, hash, pyfunc);
                    });
         }
 
@@ -175,7 +176,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                 extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::edge_feature_key_t> pyfunc)
                    {
                         std::string_view data_v(data);
-                        extensions::graphdb::hash::visit(txn->txn().edge_.hash_, data_v, pyfunc);
+                        extensions::graphdb::schema::list_key_t hash = {extensions::graphdb::hash::make(data_v), 0};
+                        extensions::graphdb::hash::visit(txn->txn().edge_.hash_, hash, pyfunc);
                    });
         }
 
@@ -187,7 +189,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                 extensions::graphdb::hash::visitor_t<extensions::graphdb::schema::graph_feature_key_t> pyfunc)
                    {
                         std::string_view data_v(data);
-                        extensions::graphdb::hash::visit(txn->txn().graph_.hash_, data_v, pyfunc);
+                        extensions::graphdb::schema::list_key_t hash = {extensions::graphdb::hash::make(data_v), 0};
+                        extensions::graphdb::hash::visit(txn->txn().graph_.hash_, hash, pyfunc);
                    });
         }
     }  // submodule hash
@@ -963,7 +966,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        schema::graph_feature_key_t key = {0xba5e, 0xf00};
                        schema::graph_feature_key_t::value_type value = 0xba11;
 
-                       extensions::graphdb::feature::write(db, key, value, true);
+                       extensions::graphdb::feature::write(db, key, value);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
@@ -982,7 +985,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                                    assert(0 != hash.head());
                                    return MDB_SUCCESS;
                                };
-                       rc = extensions::graphdb::hash::visit(db.hash_, value, visitor);
+                       extensions::graphdb::schema::list_key_t hash = {extensions::graphdb::hash::make(value), 0};
+                       rc = extensions::graphdb::hash::visit(db.hash_, hash, visitor);
                        assertm(MDB_SUCCESS == rc, rc);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
@@ -1078,7 +1082,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        Transaction txn(env, flags::txn::NESTED_RW);
                        extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
                        extensions::graphdb::schema::vertex_feature_key_t key = {0,0,0};
-                       extensions::graphdb::feature::write(db, key, buffer, true);
+                       extensions::graphdb::feature::write(db, key, buffer);
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
 
@@ -1144,10 +1148,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                        hashA.head() = hash::make(buffer);
 
-                       extensions::graphdb::feature::write(child.vertex_, keyA, buffer, true);  // refcount == 1
-                       extensions::graphdb::feature::write(child.vertex_, keyA, buffer, true);  // this should be a noop
-                       extensions::graphdb::feature::write(child.vertex_, keyB, buffer, true);  // refcount == 2
-                       extensions::graphdb::feature::write(child.vertex_, keyC, buffer, true);  // refcount == 3
+                       extensions::graphdb::feature::write(child.vertex_, keyA, buffer);  // refcount == 1
+                       extensions::graphdb::feature::write(child.vertex_, keyA, buffer);  // this should be a noop
+                       extensions::graphdb::feature::write(child.vertex_, keyB, buffer);  // refcount == 2
+                       extensions::graphdb::feature::write(child.vertex_, keyC, buffer);  // refcount == 3
                    }
 
                    {
@@ -1229,7 +1233,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                        hashB.head() = hash::make(buffer);
 
-                       extensions::graphdb::feature::write(child.vertex_, keyB, buffer, true);
+                       extensions::graphdb::feature::write(child.vertex_, keyB, buffer);
                        extensions::graphdb::feature::purge(child.vertex_, keyC);  // refcount == 1
                    }
 
