@@ -34,7 +34,7 @@ docker/linux::
     apt-get install apt-file locales emacs-nox wget
     emacs -nw /etc/locale.gen, locale-gen
     apt-get install python3 python3-venv python3-dev gcc g++ gdb git cmake valgrind
-    apt-get install clang llvm liblmdb-dev libclang-14-dev libpolly-14-dev
+    apt-get install clang llvm liblmdb-dev libclang-14-dev libpolly-14-dev md2html
 
 unittest::
 
@@ -68,11 +68,12 @@ update::
 
 update README.md::
 
+    md2html --output=docs/index.html --full-html --xhtml README.md
     git checkout main
     git fetch upstream main
     git reset --hard upstream/main
     git push -u origin main
-    git checkout e2.3.1 -- README.md .github/FUNDING.yml
+    git checkout e2.3.1 -- README.md .github/FUNDING.yml .nojekyll docs/index.html
 
 static analysis::
 

@@ -1,6 +1,8 @@
-# Extensions for PyTorch
+# A study of source code generation
 
-This repo holds a number of extensions for PyTorch. The current development
+The aim of this [project](https://github.com/ghdk/pytorch) is to study
+the problem of generating source code through AI algorithms.
+The project builds on [PyTorch](https://pytorch.org). The current development
 branch is [e2.8.0](https://github.com/ghdk/pytorch/tree/e2.8.0) which is
 based on the `v2.8.0` release of PyTorch.
 
