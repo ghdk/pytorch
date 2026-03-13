@@ -15,10 +15,9 @@ from bitarray import bitarray
 from graph import graph
 from graphdb import graphdb
 from llvmast import llvmast
-import cached_cflags
 
-CFLAGS = cached_cflags.CFLAGS
 RAMFS = os.environ.get("RAMFS", "")
+EXT_USE_COMPDB = os.environ.get("EXT_USE_COMPDB")
 
 class Test(unittest.TestCase):
 
@@ -26,6 +25,15 @@ class Test(unittest.TestCase):
         self._top = os.getcwd()
         self._dir = tempfile.mkdtemp(dir=RAMFS if RAMFS else self._top)
         os.chdir(self._dir)
+
+        # create a list containing all compilation dbs, see class prepare in /pytorch/extensions/llvmast/setup.py
+        self._compdb = []
+        assert EXT_USE_COMPDB
+        compdb_files = EXT_USE_COMPDB.split(':')
+        for file in compdb_files:
+            with open(file, 'r') as f:
+                l = eval(f.read())
+                self._compdb.extend(l)
 
     def rm_test_dir(f):
         def impl(self):
@@ -38,13 +46,18 @@ class Test(unittest.TestCase):
 
     @rm_test_dir
     def test_clang(self):
-        llvmast.llvmast(['-c', f"{self._top}/llvmast.cc"] + ['--'] + CFLAGS)
+        src = str(Path(__file__).parents[0] / Path("llvmast.cc"))
+        record = next((r for r in self._compdb if src in r['file']), None)
+        assert record, f"{EXT_USE_COMPDB}"
+        compcmd = record.get('command', None) or record.get('arguments', None)
+        compcmd = compcmd.split() if isinstance(compcmd, str) else compcmd
+        llvmast.llvmast(['llvmast', src] + ['--'] + compcmd)
 
     @rm_test_dir
     def test_clang_vendor(self):
         import subprocess
         with open('clang.log', 'a') as log:
-            cmd = ['clang'] + CFLAGS + ['-Xclang', '-ast-dump', '-fsyntax-only', '-fno-diagnostics-color'] + ['-c', f"{self._top}/llvmast.cc"]
+            cmd = ['clang'] + ['-Xclang', '-ast-dump', '-fsyntax-only', '-fno-diagnostics-color'] + ['-c', f"{self._top}/llvmast.cc"]
             print(cmd, file=log)
             subprocess.run(cmd, stdout=log, stderr=log, check=True)
             # NB. the exception on rc != 0 allows us to keep the log file with the AST
@@ -67,7 +80,7 @@ int main(int argc, char** argv)
             file=f)
         
         self.assertTrue(os.path.isfile(maincc))
-        llvmast.llvmast(['-c', maincc] + ['--'] + CFLAGS)
+        llvmast.llvmast(['-c', maincc])
         
         with graphdb.TransactionNode(llvmast.DB_FILE) as txn:
             graph_i = graphdb.make_graph_vtx_set_key(llvmast.GRAPH)
@@ -150,7 +163,7 @@ int main(int argc, char** argv)
             file=f)
         
         self.assertTrue(os.path.isfile(maincc))
-        llvmast.llvmast(['-c', maincc] + ['--'] + CFLAGS)
+        llvmast.llvmast(['-c', maincc])
 
         with graphdb.TransactionNode(llvmast.DB_FILE) as txn:
             graph_i = graphdb.make_graph_vtx_set_key(llvmast.GRAPH)
@@ -200,7 +213,7 @@ int main(int argc, char** argv)
             file=f)
         
         self.assertTrue(os.path.isfile(maincc))
-        llvmast.llvmast(['-c', maincc] + ['--'] + CFLAGS)
+        llvmast.llvmast(['-c', maincc])
 
         with graphdb.TransactionNode(llvmast.DB_FILE) as txn:
             graph_i = graphdb.make_graph_vtx_set_key(llvmast.GRAPH)
@@ -296,7 +309,7 @@ int main(int argc, char** argv)
             file=f)
         
         self.assertTrue(os.path.isfile(maincc))
-        llvmast.llvmast(['-c', maincc] + ['--'] + CFLAGS)
+        llvmast.llvmast(['-c', maincc])
 
         with graphdb.TransactionNode(llvmast.DB_FILE) as txn:
             graph_i = graphdb.make_graph_vtx_set_key(llvmast.GRAPH)

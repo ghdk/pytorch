@@ -33,18 +33,20 @@ void find(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
 
     typename K::value_type ret = hint.begin()->head();
     typename K::value_type step = 0;
-    schema::meta_page_t N = 1;
+    schema::list_hdr_t hdr;
 
-    mdb_view<schema::meta_key_t> meta_k(&schema::META_KEY_PAGE, 1);
-    mdb_view<schema::meta_page_t> meta_v;
+    mdb_view<schema::meta_key_t> meta_k(&schema::META_LIST_HEAD, 1);
+    mdb_view<schema::list_hdr_t> meta_v;
 
     rc = parent.get(meta_k, meta_v);
     assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
     if(MDB_SUCCESS == rc)
-        N = *(meta_v.begin());
+        hdr = *(meta_v.begin());
+    else
+        hdr.length() = 1;
 
-    const schema::meta_page_t page_sz = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
-    const schema::meta_page_t max = N * page_sz - 1;
+    const schema::list_hdr_t::value_type page_sz = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
+    const schema::list_hdr_t::value_type max = hdr.length() * page_sz - 1;
     assertm(max >= ret, "Out of bounds ", ret, " ", max);
 
     std::random_device r;
@@ -56,8 +58,8 @@ void find(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
 
         while(true)
         {
-            // Every list has an end node, and an empty list has only an end node.
-            K query = {ret + step, schema::LIST_TAIL_MAX};
+            // Every list has a header node, and an empty list has only a header node.
+            K query = {ret, 0};
             if(query.head() <= max && query.head() != schema::RESERVED)
             {
                 mdb_view<K> iter_k(&query, 1);
@@ -66,27 +68,24 @@ void find(graphdb::Database const& parent, graphdb::mdb_view<K> hint)
                 rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
                 if(MDB_NOTFOUND == rc) break;
             }
-            if(query.head() && !(query.head() % page_sz))
+            if(step >= 0.5 * page_sz)
             {
-                N += 1;
-                step = 0;
+                hdr.length() += 1;
                 ret = max + 1;
                 break;
             }
-            if(ret == hint.begin()->head())
+            else
             {
                 ret = d(e);
-                step = 0;
-            }
-            else
                 step += 1;
+            }
         }
     }
 
-    meta_v = mdb_view<schema::meta_page_t>(&N, 1);
+    meta_v = mdb_view<schema::list_hdr_t>(&hdr, 1);
     assertm(MDB_SUCCESS == (rc = parent.put(meta_k, meta_v, flags::put::DEFAULT)), rc);
 
-    *(hint.begin()) = {ret + step, 0};
+    *(hint.begin()) = {ret, 0};
 }
 
 template<typename K>
@@ -97,64 +96,6 @@ void find(graphdb::Database const& parent, K& hint)
 }
 
 }  // namespace head
-
-namespace end
-{
-
-template<typename K, typename = schema::is_list_key_t<K>>
-void write(graphdb::Database const& parent,
-           graphdb::mdb_view<K> node,
-           graphdb::mdb_view<schema::list_end_t> end)
-{
-    assertm(node.begin()->head(), node.begin()->head());
-    int rc;
-    K iter = *(node.begin());
-    mdb_view<K> iter_k(&iter, 1);
-
-    iter.tail() = schema::LIST_TAIL_MAX;
-    assertm(MDB_SUCCESS == (rc = parent.put(iter_k, end, flags::put::DEFAULT)), rc, iter);
-}
-
-template<typename K>
-void write(graphdb::Database const& parent, K node, schema::list_end_t& end)
-{
-    graphdb::mdb_view<K> node_v(&node, 1);
-    graphdb::mdb_view<schema::list_end_t> end_v(&end, 1);
-    write(parent, node_v, end_v);
-}
-
-template<typename K, typename = schema::is_list_key_t<K>>
-void read(graphdb::Database const& parent,
-          graphdb::mdb_view<K> node,
-          graphdb::mdb_view<schema::list_end_t> end)
-{
-    assertm(node.begin()->head(), node.begin()->head());
-    int rc;
-    K iter = *(node.begin());
-    mdb_view<K> iter_k(&iter, 1);
-
-    graphdb::Cursor cursor(parent.txn_, parent);
-
-    iter.tail() = schema::LIST_TAIL_MAX;
-    mdb_view<schema::list_end_t> iter_v;
-
-    rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
-    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
-    if(MDB_SUCCESS == rc)
-        memcpy((void*)end.data(), (void*)iter_v.data(), sizeof(schema::list_end_t));
-    else
-        *(end.begin()) = schema::list_end_t();
-}
-
-template<typename K>
-void read(graphdb::Database const& parent, K& node, schema::list_end_t& end)
-{
-    graphdb::mdb_view<K> node_v(&node, 1);
-    graphdb::mdb_view<schema::list_end_t> end_v(&end, 1);
-    read(parent, node_v, end_v);
-}
-
-}  // namespace end
 
 /**
  * Removes a linked list from the DB.
@@ -169,20 +110,22 @@ void purge(graphdb::Database const& parent, graphdb::mdb_view<K> node)
     K iter = *(node.begin());
     mdb_view<K> iter_k(&iter, 1);
 
-    for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
+    for(size_t i = iter.tail();; i++)
     {
         iter.tail() = i;
+        if(!i)
+        {
+            extensions::graphdb::schema::list_hdr_t hdr;
+            assertm(MDB_SUCCESS == (rc = parent.get(iter, hdr)), rc);
+            assertm(1 == hdr.refcount(), iter, hdr);  // ie. do not purge a list that has more than one references
+        }
         rc = parent.remove(iter_k);
         assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
         if(MDB_NOTFOUND == rc)
             break;
     }
 
-    if(!node.begin()->tail())  // we removed the whole list
-    {
-        iter.tail() = schema::LIST_TAIL_MAX;
-        assertm(MDB_SUCCESS == (rc = parent.remove(iter_k)), rc);
-    }
+    // NB. it does not update the header!
 }
 
 template<typename K>
@@ -197,7 +140,7 @@ void purge(graphdb::Database const& parent, K& node)
  * chunks and creates the linked list.
  */
 template<typename K, typename V, typename = schema::is_list_key_t<K>>
-void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, const graphdb::mdb_view<V> value)
+void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, const graphdb::mdb_view<V> value, typename K::value_type hash)
 {
 
     assertm(0 != head.begin()->head(), head.begin()->head());
@@ -211,32 +154,46 @@ void write(graphdb::Database const& parent, const graphdb::mdb_view<K> head, con
     mdb_view<V> iter_v;
     size_t chunk = extensions::graphdb::schema::page_size / sizeof(V);  // number of items in a page
 
-    extensions::graphdb::schema::list_end_t end;
-    end::read(parent, iter, end);
-    assertm(1 >= end.refcount(), iter, end);  // ie. do not overwrite a list that has more than one references
+    extensions::graphdb::schema::list_hdr_t hdr;
+    mdb_view<extensions::graphdb::schema::list_hdr_t> hdr_v;
 
-    for(typename K::value_type i = 0; i < schema::LIST_TAIL_MAX; i++)
+    for(typename K::value_type i = 0;; i++)
     {
-        if(i*chunk >= value.size()) break;
-        iter.tail() = i;
-        iter_v = mdb_view<V>(value.data()          + i * chunk,
-                             std::min(value.size() - i * chunk, chunk));
-        assertm(MDB_SUCCESS == (rc = parent.put(iter_k, iter_v, flags::put::DEFAULT)), rc);
+        if(!i)
+        {
+            rc = parent.get(iter_k, hdr_v);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+            if(MDB_SUCCESS == rc)
+            {
+                hdr = *(hdr_v.begin());
+                assertm(1 == hdr.refcount(), iter, hdr);  // ie. do not overwrite a list that has more than one references
+            }
+            // NB. it does not change the ref count!
+            hdr.length() = value.size() / chunk;
+            hdr.length() += value.size() % chunk ? 1 : 0;
+            hdr.bytes() = value.size() * sizeof(V);
+            hdr.hash() = hash;
+            hdr_v = mdb_view<schema::list_hdr_t>(&hdr, 1);
+            assertm(MDB_SUCCESS == (rc = parent.put(iter_k, hdr_v, flags::put::DEFAULT)), rc);
+        }
+        else
+        {
+            if((i-1)*chunk >= value.size()) break;
+            iter.tail() = i;
+            iter_v = mdb_view<V>(value.data()          + (i-1) * chunk,
+                                 std::min(value.size() - (i-1) * chunk, chunk));
+            assertm(MDB_SUCCESS == (rc = parent.put(iter_k, iter_v, flags::put::DEFAULT)), rc);
+        }
     }
 
     // if we are overwriting an existing list, purge the remainder of the
     // old list
     iter.tail() += 1;
     purge(parent, iter);
-
-    end.length() = iter.tail();
-    end.hash() = std::hash<graphdb::mdb_view<V>>{}(value);
-    end.bytes() = value.size() * sizeof(V);
-    end::write(parent, iter, end);
 }
 
 template<typename K, typename V>
-void write(graphdb::Database const& parent, K& head, V& value)
+void write(graphdb::Database const& parent, K& head, V& value, typename K::value_type hash)
 {
     const graphdb::mdb_view<K> head_v(&head, 1);
 
@@ -247,7 +204,7 @@ void write(graphdb::Database const& parent, K& head, V& value)
         if(torch::kUInt8 == tensor.dtype())
         {
             mdb_view<uint8_t> value_v(tensor.data_ptr<uint8_t>(), tensor.numel());
-            write(parent, head_v, value_v);
+            write(parent, head_v, value_v, hash);
         }
         else
             assertm(false, tensor.dtype());
@@ -255,12 +212,12 @@ void write(graphdb::Database const& parent, K& head, V& value)
     else if constexpr (extensions::is_contiguous<V>::value)
     {
         const graphdb::mdb_view<typename V::value_type> value_v(value.data(), value.size());
-        write(parent, head_v, value_v);
+        write(parent, head_v, value_v, hash);
     }
     else if constexpr(std::is_fundamental_v<V>)
     {
         const graphdb::mdb_view<std::remove_cv_t<V>> value_v(&value, 1);
-        write(parent, head_v, value_v);
+        write(parent, head_v, value_v, hash);
     }
     else
         static_assert(extensions::false_always<K,V>::value);
@@ -277,8 +234,8 @@ void read(graphdb::Database const& parent, const graphdb::mdb_view<K> head, grap
      * If instead you want to read an individual node of a list, call directly the
      * Database.get method.
      */
-    assertm(0 != head.begin()->head(), head.begin()->head());
-    assertm(0 == head.begin()->tail(), head.begin()->tail());
+    assertm(0 != head.begin()->head(), *(head.begin()));
+    assertm(0 == head.begin()->tail(), *(head.begin()));
 
     int rc = 0;
 
@@ -289,20 +246,28 @@ void read(graphdb::Database const& parent, const graphdb::mdb_view<K> head, grap
         mdb_view<K> iter_k(&iter, 1);
         mdb_view<V> iter_v;
         size_t chunk = extensions::graphdb::schema::page_size / sizeof(V);
+        extensions::graphdb::schema::list_hdr_t hdr;
 
-        for(size_t i = 0; i < schema::LIST_TAIL_MAX; i++)
+        for(size_t i = 0;; i++)
         {
             iter.tail() = i;
-            rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
-            if(i == head.begin()->tail())
-                assertm(MDB_SUCCESS == rc ,rc);  // node must be in the DB.
-            if(MDB_NOTFOUND == rc) break;
-            if(iter.head() != head.begin()->head()) break;
-            assertm(value.size() >= i * chunk + iter_v.size(), i, sizeof(V), value.size());
-            memcpy((void*)(value.data() + i * chunk), (void*)(iter_v.data()), iter_v.size() * sizeof(V));
+            if(!i)
+            {
+                rc = cursor.get(iter, hdr, MDB_cursor_op::MDB_SET);
+                assertm(MDB_SUCCESS == rc ,rc);  // the list must be in the DB.
+                assertm(value.size() * sizeof(V) == hdr.bytes(), hdr);
+                assert(0 < hdr.refcount());
+            }
+            else
+            {
+                rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_NEXT);
+                assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+                if(MDB_NOTFOUND == rc) break;
+                assertm(value.size() >= (i-1) * chunk + iter_v.size(), i, sizeof(V), value.size());
+                memcpy((void*)(value.data() + (i-1) * chunk), (void*)(iter_v.data()), iter_v.size() * sizeof(V));
+            }
         }
     }
-
 }
 
 template<typename K, typename V>
@@ -347,36 +312,41 @@ bool holds(graphdb::Database const& parent, graphdb::mdb_view<K> head, graphdb::
 
     K iter = *(head.begin());
     mdb_view<K> iter_k(&iter, 1);
+    mdb_view<uint8_t> iter_v;
 
-    schema::list_end_t end;
-    mdb_view<schema::list_end_t> end_v(&end, 1);
+    schema::list_hdr_t hdr;
+    mdb_view<schema::list_hdr_t> hdr_v;
 
-    list::end::read(parent, iter_k, end_v);
-    assert(0 < end.refcount());
+    size_t chunk = extensions::graphdb::schema::page_size / sizeof(V);
 
-    // compare the size
-    ret = value.size() * sizeof(V) == end.bytes();
+    graphdb::Cursor cursor(parent.txn_, parent);
 
-    // compare the hash
-    ret &= hash == end.hash();
-
-    if(ret)  // compare the contents
+    for(size_t i = 0;; i++)
     {
-        graphdb::Cursor cursor(parent.txn_, parent);
-
-        mdb_view<V> iter_v;
-        size_t chunk = extensions::graphdb::schema::page_size / sizeof(V);
-
-        for(size_t i = 0; i < schema::LIST_TAIL_MAX; i++)
+        iter.tail() = i;
+        if(!i)
         {
-            iter.tail() = i;
-            rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
-            if(i == head.begin()->tail())
-                assertm(MDB_SUCCESS == rc, rc, iter);  // the head must be in the DB.
-            if(MDB_NOTFOUND == rc) break;
-            if(iter.head() != head.begin()->head()) break;
-            ret &= 0 == memcmp((void*)(value.data() + i * chunk), (void*)(iter_v.data()), iter_v.size() * sizeof(V));
+            rc = cursor.get(iter_k, hdr_v, MDB_cursor_op::MDB_SET);
+            assertm(MDB_SUCCESS == rc ,rc);  // the list must be in the DB.
+            hdr = *(hdr_v.begin());
+            assert(0 < hdr.refcount());
+
+            // compare the size
+            ret = value.size() * sizeof(V) == hdr.bytes();
+            // compare the hash
+            ret &= hash == hdr.hash();
         }
+        else
+        {
+            rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_NEXT);
+            
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+            if(MDB_NOTFOUND == rc) break;
+
+            ret &= 0 == memcmp((void*)(value.data() + (i-1) * chunk), iter_v.data(), iter_v.size());
+        }
+
+        if(!ret) break;
     }
 
     return ret;
@@ -409,48 +379,59 @@ bool holds(graphdb::Database const& parent, K& head, V& value, size_t hash)
 template<typename K, typename V, typename = schema::is_list_key_t<K>>
 void expand(graphdb::Database const& parent, graphdb::mdb_view<K> node, graphdb::mdb_view<V> value)
 {
-    assertm(0 != node.begin()->head(), node.begin()->head());
+    assertm(0 != node.begin()->head(), *(node.begin()));
     assertm(value.size() * sizeof(V) <= extensions::graphdb::schema::page_size, value.size());
 
     int rc = 0;
-
-    graphdb::Cursor cursor(parent.txn_, parent);
 
     K iter = *(node.begin());
     mdb_view<K> iter_k(&iter, 1);
     mdb_view<V> iter_v;
 
-    for(auto i = iter.tail(); i < schema::LIST_TAIL_MAX; ++i)
+    schema::list_hdr_t hdr;
+    mdb_view<schema::list_hdr_t> hdr_v;
+
+    graphdb::Cursor cursor(parent.txn_, parent);
+
+    for(size_t i = 0;; i = hdr.length())  // visit hdr and jump to the index of the newly appended node
     {
         iter.tail() = i;
-        rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
-        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
-        if(MDB_NOTFOUND == rc || iter_k.begin()->head() != node.begin()->head())
+        if(!i)
         {
-            iter = {node.begin()->head(), i};
-            assertm(MDB_SUCCESS == (rc = parent.put(iter_k, value, flags::put::DEFAULT)), rc);
-            break;
-        }
-        if(MDB_SUCCESS == rc)
-        {
+            rc = cursor.get(iter_k, hdr_v, MDB_cursor_op::MDB_SET);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+            if(MDB_SUCCESS == rc)
+            {
+                hdr = *(hdr_v.begin());
+                assert(0 < hdr.refcount());
+            }
+            hdr.length() += 1;
+            hdr.bytes() += value.size() * sizeof(V);
             // It does not make sense to expand a list with values of variable size.
             // Lists are created due to a) breaking larger buffers into chunks, or
             // b) having a set of identical sized buffers (ie. pages, or keys).
             // This function manages (b).
-            assertm(iter_v.size() == value.size(), iter_v.size(), value.size());
+            assertm(0 == hdr.bytes() % (value.size() * sizeof(V)), hdr, value.size(), sizeof(V));
+            // we do not set the hash; either its a list of the hash table in which case
+            // the hash of the header is the same with the hash of the head of the list, or we
+            // expanded a list that does not hold a single buffer and the hash is meaningless
+            hdr_v = mdb_view<schema::list_hdr_t>(&hdr, 1);
+            assertm(MDB_SUCCESS == (rc = parent.put(iter_k, hdr_v, flags::put::DEFAULT)), rc);
+        }
+        else
+        {
+            rc = cursor.get(iter_k, iter_v, MDB_cursor_op::MDB_SET);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+            if(MDB_NOTFOUND == rc)
+            {
+                // since the nodes are in the range [1,n], the hdr length should be equal
+                // to the index of the appended node
+                assertm(iter.tail() == hdr.length(), iter, hdr);
+                assertm(MDB_SUCCESS == (rc = parent.put(iter_k, value, flags::put::DEFAULT)), rc);
+                break;
+            }
         }
     }
-
-    // Update the list's end node.
-    extensions::graphdb::schema::list_end_t end;
-    end::read(parent, iter, end);  // read to preserve the refcount
-    assert(0 < end.refcount());
-    end.length() = iter.tail() + 1;
-    end.bytes() = (iter.tail() * value.size() + value.size()) * sizeof(V);
-    end.hash() = 0;  // we do not set the hash; since we expanded the list,
-                     // the list does not hold a single buffer, hence setting
-                     // the hash is meaningless
-    end::write(parent, iter, end);
 }
 
 template<typename K, typename V>
@@ -487,7 +468,8 @@ void expand(graphdb::Database const& parent, K& node, V& value)
 template<typename K, typename = schema::is_list_key_t<K>>
 void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
 {
-    assertm(0 != node.begin()->head(), node.begin()->head());
+    assertm(0 != node.begin()->head(), *(node.begin()));
+    assertm(0 <  node.begin()->tail(), *(node.begin()));
 
     int rc = 0;
 
@@ -496,7 +478,10 @@ void remove(graphdb::Database const& parent, graphdb::mdb_view<K> node)
     mdb_view<uint8_t> iter_v;
     size_t sz = 0;
 
-    for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
+    extensions::graphdb::schema::list_hdr_t hdr;
+    mdb_view<extensions::graphdb::schema::list_hdr_t> hdr_v;
+
+    for(size_t i = iter.tail();; i++)
     {
         iter.tail() = i;
         rc = parent.get(iter_k, iter_v);
@@ -524,17 +509,15 @@ DELETE:
     }
     if(sz)  // ie. we removed an element
     {
-        iter.tail() -= 2;  // point to the last node
-
-        extensions::graphdb::schema::list_end_t end;
-        end::read(parent, iter, end);  // read to preserve the refcount
-        assert(0 < end.refcount());
-        end.length() = iter.tail() + 1;
-        end.bytes() = iter.tail() * sz + sz;
-        end.hash() = 0;  // we do not set the hash; since we expanded the list,
-                         // the list does not hold a single buffer, hence setting
-                         // the hash is meaningless
-        end::write(parent, iter, end);
+        iter.tail() = 0;
+        assertm(MDB_SUCCESS == (rc = parent.get(iter_k, hdr_v)), rc);
+        hdr = *(hdr_v.begin());
+        assertm(1 == hdr.refcount(), iter, hdr);  // ie. do not modify a list that has more than one references
+        assertm(0 != hdr.hash(), iter, hdr);  // ie. do not modify the hash of the header
+        hdr.length() -= 1;
+        hdr.bytes() -= sz;
+        hdr_v = mdb_view<schema::list_hdr_t>(&hdr, 1);
+        assertm(MDB_SUCCESS == (rc = parent.put(iter_k, hdr_v, flags::put::DEFAULT)), rc);
     }
 }
 
@@ -554,8 +537,8 @@ namespace refcount
  * Entries of the main table have the form of <key,head> pairs. The functions in
  * this namespace manage these entries, plus the reference counting. When a new
  * list enters the DB, the functions of these namespace are responsible for
- * creating the end nodes and set the reference counting to 1. Every other
- * function that needs to access an end node asserts that the end node is
+ * creating the header nodes and set the reference counting to 1. Every other
+ * function that needs to access a header node asserts that the node is
  * present. This way we can verify that a) the right APIs are used, and b) the
  * integrity of the DB. When the refcount drops to zero, the list is removed,
  * otherwise only the <key,head> pair is removed.
@@ -567,19 +550,18 @@ void increase(schema::DatabaseSet const& parent, graphdb::mdb_view<K> key, graph
 
     assertm(0 == head.begin()->tail(), head.begin()->tail());
     assertm(0 != head.begin()->head(), head.begin()->head());
-    assertm(schema::LIST_TAIL_MAX != head.begin()->head(), head.begin()->head());
 
     int rc = 0;
 
-    schema::list_key_t iter = {head.begin()->head(), schema::LIST_TAIL_MAX};
-    schema::list_end_t end;
+    schema::list_key_t iter = {head.begin()->head(), 0};
+    schema::list_hdr_t hdr;
 
-    list::end::read(parent.list_, iter, end);
-    end.refcount() += 1;
-    list::end::write(parent.list_, iter, end);
+    rc = parent.list_.get(iter, hdr);
+    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+    hdr.refcount() += 1;
+    assertm(MDB_SUCCESS == (rc = parent.list_.put(iter, hdr, flags::put::DEFAULT)), rc);
 
     assertm(MDB_SUCCESS == (rc = parent.main_.put(key, head, extensions::graphdb::flags::put::DEFAULT)), rc);
-
 }
 
 template<typename K, typename V>
@@ -595,20 +577,24 @@ void decrease(schema::DatabaseSet const& parent, graphdb::mdb_view<K> key, graph
 {
     int rc = 0;
 
-    schema::list_end_t end;
+    schema::list_hdr_t hdr;
+    graphdb::mdb_view<schema::list_hdr_t> hdr_v;
 
     graphdb::mdb_view<schema::list_key_t> iter_v;
 
     assertm(MDB_SUCCESS == (rc = parent.main_.get(key, iter_v)), rc);
-    *(head.begin()) = {iter_v.begin()->head(), schema::LIST_TAIL_MAX};
+    *(head.begin()) = *(iter_v.begin());
 
-    list::end::read(parent.list_, *(head.begin()), end);
-    assert(0 < end.refcount());
-    end.refcount() -= 1;
+    assertm(MDB_SUCCESS == (rc = parent.list_.get(head, hdr_v)), rc);
+    hdr = *(hdr_v.begin());
+    
+    assert(0 < hdr.refcount());
+    hdr.refcount() -= 1;
 
-    if(end.refcount())
+    if(hdr.refcount())
     {
-        list::end::write(parent.list_, *(head.begin()), end);
+        hdr_v = mdb_view<schema::list_hdr_t>(&hdr, 1);
+        assertm(MDB_SUCCESS == (rc = parent.list_.put(head, hdr_v, flags::put::DEFAULT)), rc);
 
         // the list has not been removed, signal the caller
         // that they need to find a new head
@@ -676,6 +662,7 @@ size_t make(V const& data)
     }
     else
         static_assert(extensions::false_always<V>::value);
+    assert(ret);  // no hash value should be zero
     return ret;
 }
 
@@ -685,17 +672,23 @@ void write(graphdb::Database const& parent, graphdb::mdb_view<K> hash, graphdb::
     assertm(0 != hash.begin()->head(), hash.begin()->head());
     assertm(0 == hash.begin()->tail(), hash.begin()->tail());
 
-    schema::list_key_t iter = {hash.begin()->head(), schema::LIST_TAIL_MAX};
-    schema::list_end_t end;
+    int rc = 0;
 
-    list::end::read(parent, iter, end);
-    if(!end.refcount())
+    schema::list_key_t iter = {hash.begin()->head(), 0};
+    schema::list_hdr_t hdr;
+
+    rc = parent.get(iter, hdr);
+    assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc);
+    if(MDB_NOTFOUND == rc)
     {
-        end.refcount() = 1;
-        list::end::write(parent, iter, end);
+        hdr.hash() = iter.head();
+        hdr.refcount() = 1;
+        assertm(MDB_SUCCESS == (rc = parent.put(iter, hdr, flags::put::DEFAULT)), rc);
     }
+
     // Nothing should hold a reference to a list of the hash table.
-    assertm(1 == end.refcount(), end.refcount());
+    assertm(1 == hdr.refcount(), hdr);
+    assertm(hdr.hash() == iter.head(), hdr, iter);
 
     list::expand(parent, hash, key);
 }
@@ -714,18 +707,36 @@ using visitor_t = std::function<int(schema::list_key_t, K)>;
 template<typename K, schema::is_key_t<K>* = nullptr>
 int visit(graphdb::Database const& parent, graphdb::schema::list_key_t hash, visitor_t<K> visitor)
 {
+    assertm(0 != hash.head(), hash);
+
     int rc = MDB_SUCCESS;
 
     K key;
+    schema::list_key_t iter = hash;
+    schema::list_hdr_t hdr;
 
-    for(size_t i = hash.tail(); i < schema::LIST_TAIL_MAX; i++)
+    graphdb::Cursor cursor(parent.txn_, parent);
+
+    for(size_t i = 0;; i++)
     {
-        hash.tail() = i;
-        rc = parent.get(hash, key);
-        assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
-        if(MDB_SUCCESS != rc) break;
-        rc = visitor(hash, key);
-        if(MDB_SUCCESS == rc) break;
+        iter.tail() = i;
+        if(!i)
+        {
+            rc = cursor.get(iter, hdr, MDB_cursor_op::MDB_SET);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, hash, iter);
+            if(MDB_NOTFOUND == rc) break;
+            assertm(hdr.hash() == hash.head(), hdr, hash);
+            assertm(0 < hdr.length(), hdr, hash);
+            assertm(1 == hdr.refcount(), hdr, hash);
+        }
+        else
+        {
+            rc = cursor.get(iter, key, MDB_cursor_op::MDB_NEXT);
+            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, hash, iter);
+            if(MDB_NOTFOUND == rc) break;
+            rc = visitor(iter, key);
+            if(MDB_SUCCESS == rc) break;
+        }
     }
 
     return rc;
@@ -749,15 +760,14 @@ int visit(schema::DatabaseSet const& parent, K& key, visitor_t visitor)
 {
     int rc = 0;
     schema::list_key_t iter;
-    size_t size = 0;
     rc = parent.main_.get(key, iter);
     assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
     if(MDB_SUCCESS == rc)
     {
-        schema::list_end_t end;
-        extensions::graphdb::list::end::read(parent.list_, iter, end);
-        assert(0 < end.refcount());
-        rc = visitor(iter, end.bytes(), end.hash());
+        schema::list_hdr_t hdr;
+        assertm(MDB_SUCCESS == (rc = parent.list_.get(iter, hdr)), rc);
+        assert(0 < hdr.refcount());
+        rc = visitor(iter, hdr.bytes(), hdr.hash());
     }
     return rc;
 }
@@ -770,17 +780,16 @@ void write(schema::DatabaseSet const& parent, K key, V& value)
 
     schema::list_key_t head = {schema::RESERVED, 0};
     schema::list_key_t hash = {extensions::graphdb::hash::make(value), 0};
-    schema::list_end_t end;
+    schema::list_hdr_t hdr;
 
     rc = parent.main_.get(key, head);
     assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
 
     if(MDB_SUCCESS == rc)
     {
-        list::end::read(parent.list_, head, end);
-        // Either the value is hashed and refcount >= 1, or
-        // the value is not hashed and refcount == 1.
-        assertm((end.hash() && 1 <= end.refcount()) || 1 == end.refcount(), end);
+        assertm(MDB_SUCCESS == (rc = parent.list_.get(head, hdr)), rc);
+        // Every value is hashed and refcounted.
+        assertm((hdr.hash() && 1 <= hdr.refcount()), hdr);
         present = list::holds(parent.list_, head, value, hash.head());
         if(present) return;  // noop
         else
@@ -808,14 +817,14 @@ void write(schema::DatabaseSet const& parent, K key, V& value)
     if(!head.head())  // The value is not in the DB.
     {
         extensions::graphdb::list::head::find(parent.list_, head);
-        extensions::graphdb::list::write(parent.list_, head, value);
+        extensions::graphdb::list::write(parent.list_, head, value, hash.head());
     }
 
     extensions::graphdb::refcount::increase(parent, key, head);
 
     {
         // remove the old hash/key pair
-        schema::list_key_t old = {end.hash(), 0};
+        schema::list_key_t old = {hdr.hash(), 0};
 
         extensions::graphdb::hash::visitor_t<K> visitor =
                 [&](schema::list_key_t h4sh, K k3y)
@@ -827,7 +836,8 @@ void write(schema::DatabaseSet const& parent, K key, V& value)
                     }
                     return MDB_NOTFOUND;
                 };
-        hash::visit(parent.hash_, old, visitor);
+        if(hdr.hash())
+            hash::visit(parent.hash_, old, visitor);            
 
         // add the new hash/key pair
         hash::write(parent.hash_, hash, key);
@@ -840,14 +850,14 @@ void purge(schema::DatabaseSet const& parent, K const& key)
     int rc = 0;
     schema::list_key_t iter;
     schema::list_key_t hash;
-    schema::list_end_t end;
+    schema::list_hdr_t hdr;
 
     rc = parent.main_.get(key, iter);
     assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, key);
     if(MDB_NOTFOUND == rc) return;
 
-    list::end::read(parent.list_, iter, end);
-    hash = {end.hash(), 0};
+    assertm(MDB_SUCCESS == (rc = parent.list_.get(iter, hdr)), rc);
+    hash = {hdr.hash(), 0};
 
     // remove the key from the hash
     extensions::graphdb::hash::visitor_t<K> visitor =
@@ -865,7 +875,6 @@ void purge(schema::DatabaseSet const& parent, K const& key)
 
     // decrease the refcount, remove the key from the main table
     extensions::graphdb::refcount::decrease(parent, key, iter);
-
 }
 
 }  // namespace feature
@@ -876,7 +885,7 @@ namespace bitarray  // Transactions that manage the bitmaps.
     map_vtx_to_page(schema::graph_vtx_set_key_t::value_type vtx)
     {
         schema::graph_vtx_set_key_t::value_type slice = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
-        schema::graph_vtx_set_key_t::value_type tail = vtx / slice;  // ie. the page in the list of pages
+        schema::graph_vtx_set_key_t::value_type tail = vtx / slice + 1;  // ie. the page in the list of pages, page 0 is reserved for header
         schema::graph_vtx_set_key_t::value_type map  = vtx % slice;  // ie. the index of the vertex in the page
         schema::graph_vtx_set_key_t::value_type cell = map / extensions::bitarray::cellsize;  // ie. the cell in the page
 
@@ -907,7 +916,9 @@ namespace graph  // Transactions that manage the graph.
 
             iter_t iter = graph;
             hint_t hint = {0,0};
-            std::array<value_t, extensions::graphdb::schema::page_size> page = {0};
+            torch::TensorOptions options = torch::TensorOptions().dtype(torch::kUInt8)
+                                                                 .requires_grad(false);
+            torch::Tensor page = torch::zeros(extensions::graphdb::schema::page_size, options);
 
             rc = cursor.get(iter, hint, MDB_cursor_op::MDB_SET);
             if(MDB_SUCCESS == rc) goto COMMIT;
@@ -932,7 +943,7 @@ namespace graph  // Transactions that manage the graph.
 
         int rc = 0;
 
-        extensions::graphdb::schema::meta_page_t N = 0;
+        schema::list_key_t::value_type N = 0;
         schema::list_key_t::value_type max = 0;
         schema::list_key_t iter;
 
@@ -944,10 +955,10 @@ namespace graph  // Transactions that manage the graph.
             // calculate the total number of pages and vertices
             assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph, iter)), rc);
 
-            schema::list_end_t end;
-            list::end::read(session.vtx_set_.list_, iter, end);
-            N = end.length();
-            max = end.bytes();
+            schema::list_hdr_t hdr;
+            assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.get(iter, hdr)), rc);
+            N = hdr.length();
+            max = hdr.bytes();
             max = max * extensions::bitarray::cellsize - 1;
 
             assertm(max >= hint, "Hint ", hint, " is out of bounds [0,", max, ").");
@@ -973,8 +984,8 @@ namespace graph  // Transactions that manage the graph.
 
         while(true)
         {
-            // ret,step are in relation to max, ie. the total number of vertices in the vertex set
-            auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(ret+step);
+            // ret is in relation to max, ie. the total number of vertices in the vertex set
+            auto [tail, cell, vtx] = extensions::graphdb::bitarray::map_vtx_to_page(ret);
 
             if(tail != iter.tail())
             {
@@ -1000,20 +1011,16 @@ namespace graph  // Transactions that manage the graph.
                 }
             }
             if(!extensions::bitarray::get(page, vtx)) break;
-            if((ret || step) && !vtx)  // search only one page
+            if(step >= 0.5 * slice)  // search only one page
             {
-                step = 0;
-                ret = max;
-            }
-            if(ret == hint)
-            {
-                ret = d(e);
-                step = 0;
+                ret = max+1;  // should trigger expansion
             }
             else
+            {
+                ret = d(e);
                 step += 1;
+            }
         }
-        ret = ret + step;  // ie. return ret in relation to max, not the slice.
         return ret;
     }
 
@@ -1118,10 +1125,7 @@ namespace graph  // Transactions that manage the graph.
         {
             extensions::graphdb::list::head::find(session.adj_mtx_.list_, iter);
             extensions::graphdb::refcount::increase(session.adj_mtx_, key, iter);
-            if(tail)  // initialise the head of the list
-                assertm(MDB_SUCCESS == (rc = session.adj_mtx_.list_.put(iter, page, extensions::graphdb::flags::put::DEFAULT)), rc, iter);
         }
-
 
         iter.tail() = tail;
         rc = session.adj_mtx_.list_.get(iter, page);
@@ -1137,19 +1141,19 @@ namespace graph  // Transactions that manage the graph.
              */
 
             graphdb::schema::list_key_t head;
-            graphdb::schema::list_end_t end;
+            graphdb::schema::list_hdr_t hdr;
 
             // get the end node of the vtx set
             assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph, head)), rc);
-            extensions::graphdb::list::end::read(session.vtx_set_.list_, head, end);
+            assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.get(head, hdr)), rc);
 
             // There should only be one reference to the vtx set, and similarly
             // to each row of the adj mtx.
-            assertm(1 == end.refcount(), end.refcount());
+            assertm(1 == hdr.refcount(), hdr);
 
             // copy the end node to the adj mtx list
             head = {iter.head(), 0};  // switch to the adj mtx list
-            extensions::graphdb::list::end::write(session.adj_mtx_.list_, head, end);
+            assertm(MDB_SUCCESS == (rc = session.adj_mtx_.list_.put(head, hdr, flags::put::DEFAULT)), rc);
         }
     }
 
@@ -1172,17 +1176,30 @@ namespace graph  // Transactions that manage the graph.
 
         extensions::graphdb::schema::list_key_t iter;
         assertm(MDB_SUCCESS == (rc = parent.vtx_set_.main_.get(graph, iter)), rc);
+        schema::list_hdr_t hdr;
 
-        for(size_t i = iter.tail(); i < schema::LIST_TAIL_MAX; i++)
+        graphdb::Cursor cursor(parent.txn_, parent.vtx_set_.list_);
+
+        for(size_t i = 0;; i++)
         {
             iter.tail() = i;
-            rc = parent.vtx_set_.list_.get(iter, page);
-            assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, iter);
-            if(MDB_NOTFOUND == rc) break;
-            for(size_t vtx = 0; vtx < slice; vtx++)
+            if(!i)
             {
-                if(extensions::bitarray::get(page, vtx))
-                    visitor(slice * i + vtx);
+                assertm(MDB_SUCCESS == (rc = cursor.get(iter, hdr, MDB_cursor_op::MDB_SET)), rc, iter);
+                assertm(0 == hdr.hash(), hdr, iter);
+                assertm(0 < hdr.length(), hdr, iter);
+                assertm(1 == hdr.refcount(), hdr, iter);
+            }
+            else
+            {
+                rc = cursor.get(iter, page, MDB_cursor_op::MDB_NEXT);
+                assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, hdr, iter);
+                if(MDB_NOTFOUND == rc) break;
+                for(size_t vtx = 0; vtx < slice; vtx++)
+                {
+                    if(extensions::bitarray::get(page, vtx))
+                        visitor(slice * (i-1) + vtx);
+                }
             }
         }
     }
@@ -1209,11 +1226,12 @@ namespace graph  // Transactions that manage the graph.
             assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, iter);
             if(MDB_NOTFOUND == rc) return;
 
-            graphdb::schema::list_end_t end;  // NB. the adj mtx is sparse
-            extensions::graphdb::list::end::read(parent.adj_mtx_.list_, iter, end);
+            graphdb::schema::list_hdr_t hdr;  // NB. the adj mtx is sparse
+            assertm(MDB_SUCCESS == (rc = parent.adj_mtx_.list_.get(iter, hdr)), rc);
 
-            for(size_t i = iter.tail(); i < end.length(); i++)
+            for(size_t i = iter.tail(); i <= hdr.length(); i++)
             {
+                if(!i) continue;
                 iter.tail() = i;
                 rc = parent.adj_mtx_.list_.get(iter, page);
                 assertm(extensions::iter::in(std::array<int,2>{MDB_SUCCESS, MDB_NOTFOUND}, rc), rc, iter);
@@ -1221,7 +1239,7 @@ namespace graph  // Transactions that manage the graph.
                 for(size_t vtx_n = 0; vtx_n < slice; vtx_n++)
                 {
                     if(extensions::bitarray::get(page, vtx_n))
-                        visitor(vtx, slice * i + vtx_n);
+                        visitor(vtx, slice * (i-1) + vtx_n);
                 }
             }
         };

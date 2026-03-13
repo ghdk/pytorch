@@ -147,6 +147,14 @@ public:
         rc = mdb_env_set_mapsize(handle_, maxsz);
         assertm(MDB_SUCCESS == rc, rc);
 
+        unsigned int maxreaders;
+        rc = mdb_env_get_maxreaders(handle_, &maxreaders);
+        assertm(MDB_SUCCESS == rc, rc);
+        assertm(126 == maxreaders, maxreaders);
+
+        int maxkeysz = mdb_env_get_maxkeysize(handle_);
+        assertm(511 == maxkeysz, maxkeysz);
+
         rc = mdb_env_open(handle_, filename_.data(), flags, 0600);
         assertm(MDB_SUCCESS == rc, rc);
     }
@@ -237,6 +245,48 @@ public:
     unsigned int flags_;
 };
 
+static int key_compare(const MDB_val *left, const MDB_val *right)
+{
+    /**
+     * A key is an array of size_t numbers, ex
+     * [0xAABBCC, 0xDDEEFF]
+     * 
+     * In memory the key appears as
+     * [0xCC, 0xBB, 0xAA, 0xFF, 0xEE, 0xDD]
+     * 
+     * We want cursors to visit keys in the following order
+     * [0xA, 0]
+     * [0xA, 1]
+     * ...
+     * [0xA, n]
+     * [0xB, 0]
+     * [0xB, 1]
+     * ...
+     * [0xB, n]
+     * 
+     * Hence we split the key into sizeof size_t slices, and
+     * we compare each slice in reverse.
+     */
+    assert(0 != right->mv_size);
+    assert(left->mv_size == right->mv_size);
+
+    uint8_t slices = left->mv_size / sizeof(size_t);
+
+    for(uint8_t slice = 1; slice <= slices; slice++)
+    {
+        // we iterate from right to left, end is the left most address
+        uint8_t *end = ((uint8_t*) left->mv_data) + sizeof(size_t) * (slice-1);
+        uint8_t *left_i = ((uint8_t*) left->mv_data) + sizeof(size_t) * slice;
+        uint8_t *right_i = ((uint8_t*) right->mv_data) + sizeof(size_t) * slice;
+
+        do {
+            if (*--left_i != *--right_i)
+                return *left_i < *right_i ? -1 : 1;
+        } while (left_i > end);
+    }
+    return 0;
+}
+
 class Database
 {
 public:
@@ -249,14 +299,14 @@ private:
                                           && !std::is_same_v<view_type, K>
                                           && !std::is_same_v<view_type, V>>;
 public:
-    int put(const view_type key, const view_type value, unsigned int flags)
+    int put(const view_type key, const view_type value, unsigned int flags) const
     {
         int rc = mdb_put(txn_, handle_, key, value, flags);
         return rc;
     }
 
     template <typename K, typename V, typename = constraint_t<K,V>>
-    int put(K const& key, V const& data, unsigned int flags)
+    int put(K const& key, V const& data, unsigned int flags) const
     {
         int rc = 0;
 
@@ -295,14 +345,17 @@ public:
         return rc;
     }
 
-    int get(const view_type key, view_type data)
+    int get(const view_type key, view_type data) const
     {
         return mdb_get(txn_, handle_, key, data);
     }
 
     template <typename K, typename V, typename = constraint_t<K,V>>
-    int get(K const& key, V& data)
+    int get(K const& key, V& data) const
     {
+        // NB. the DB does not hold type information. Hence the memory
+        // buffer that it returns might not be alligned for a specific
+        // type. Always use mdb_view<uint8_t> for reads from the DB. 
         int rc = 0;
 
         static_assert(extensions::is_contiguous<K>::value);
@@ -311,8 +364,9 @@ public:
         if constexpr(std::is_same_v<V, torch::Tensor>)
         {
             assert(data.is_contiguous());
-            auto lambda = [&](auto view)
+            auto lambda = [&](auto view, uint8_t szof)
             {
+                assertm(data.numel() * szof >= view.size(), data.numel(), szof, view.size());
                 // NB. Quoting "Exposes the given data as a Tensor without taking ownership of the original data."
                 torch::Tensor blob = torch::from_blob(view.begin(), data.sizes(), data.options());
                 data.copy_(blob);  // take ownership
@@ -320,77 +374,83 @@ public:
 
             if(torch::kFloat == data.dtype())
             {
-                mdb_view<float> data_v;
+                mdb_view<uint8_t> data_v;
                 rc = get(key_v, data_v);
                 if(MDB_SUCCESS == rc)
-                    lambda(data_v);
+                    lambda(data_v, sizeof(float));
             }
             else if(torch::kUInt8 == data.dtype())
             {
                 mdb_view<uint8_t> data_v;
                 rc = get(key_v, data_v);
                 if(MDB_SUCCESS == rc)
-                    lambda(data_v);
+                    lambda(data_v, sizeof(uint8_t));
             }
             else
                 assertm(false, data.dtype());
         }
         else if constexpr(extensions::is_contiguous<V>::value)
         {
-            mdb_view<typename V::value_type> data_v(data.data(), data.size());
+            mdb_view<uint8_t> data_v;
             rc = get(key_v, data_v);
             if(MDB_SUCCESS == rc)
-                memcpy(data.data(), data_v.begin(), data_v.size() * sizeof(typename V::value_type));
+            {
+                assertm(data.size() * sizeof(typename V::value_type) >= data_v.size(), data.size(), sizeof(typename V::value_type), data_v.size());
+                memcpy(data.data(), data_v.begin(), data_v.size());
+            }
         }
         else if constexpr(std::is_fundamental_v<V>)
         {
-            mdb_view<V> data_v(&data, 1);
+            mdb_view<uint8_t> data_v;
             rc = get(key_v, data_v);
             if(MDB_SUCCESS == rc)
-                memcpy(&data, data_v.begin(), sizeof(data));
+            {
+                assertm(sizeof(V) >= data_v.size(), sizeof(V), data_v.size());
+                memcpy(&data, data_v.begin(), sizeof(V));
+            }
         }
         else
             static_assert(extensions::false_always<K,V>::value);
         return rc;
     }
 
-    int remove(view_type key)
+    int remove(view_type key) const
     {
         return mdb_del(txn_, handle_, key, NULL);
     }
-    size_t cardinality()
+    size_t cardinality() const
     {
         MDB_stat stat;
         int rc = mdb_stat(txn_, handle_, &stat);
         assert(MDB_SUCCESS == rc);
         return stat.ms_entries;
     }
-public:  // const
-    int put(const view_type key, const view_type value, unsigned int flags) const
+public:
+    int put(const view_type key, const view_type value, unsigned int flags)
     {
-        return const_cast<Database*>(this)->put(key, value, flags);
+        return static_cast<Database const*>(this)->put(key, value, flags);
     }
     template <typename K, typename V, typename = constraint_t<K,V>>
-    int put(K const& key, V const& value, unsigned int flags) const
+    int put(K const& key, V const& value, unsigned int flags)
     {
-        return const_cast<Database*>(this)->put(key, value, flags);
+        return static_cast<Database const*>(this)->put(key, value, flags);
     }
-    int get(const view_type key, view_type data) const
+    int get(const view_type key, view_type data)
     {
-        return const_cast<Database*>(this)->get(key, data);
+        return static_cast<Database const*>(this)->get(key, data);
     }
     template <typename K, typename V, typename = constraint_t<K,V>>
-    int get(K const& key, V& data) const
+    int get(K const& key, V& data)
     {
-        return const_cast<Database*>(this)->get(key, data);
+        return static_cast<Database const*>(this)->get(key, data);
     }
-    int remove(view_type key) const
+    int remove(view_type key)
     {
-        return const_cast<Database*>(this)->remove(key);
+        return static_cast<Database const*>(this)->remove(key);
     }
-    size_t cardinality() const
+    size_t cardinality()
     {
-        return const_cast<Database*>(this)->cardinality();
+        return static_cast<Database const*>(this)->cardinality();
     }
 public:
     Database(Transaction const& txn, Database const& parent)
@@ -402,7 +462,12 @@ public:
     Database(Transaction const& txn, std::string_view name, unsigned int flags)
     : txn_{txn}
     {
-        int rc = mdb_dbi_open(txn, !name.empty() ? name.data() : NULL, flags, &handle_);
+        int rc = 0;
+        
+        rc = mdb_dbi_open(txn, !name.empty() ? name.data() : NULL, flags, &handle_);
+        assertm(MDB_SUCCESS == rc, rc);
+
+        rc = mdb_set_compare(txn, handle_, key_compare);
         assertm(MDB_SUCCESS == rc, rc);
     }
 
@@ -452,9 +517,22 @@ private:
                                           && !std::is_same_v<view_type, V>>;
 
 public:
-    int get(view_type key, view_type value, MDB_cursor_op op)
+    int get(const view_type key, view_type value, MDB_cursor_op op)
     {
-        return mdb_cursor_get(handle_, key, value, op);
+        /**
+         * When MDB_cursor_op::MDB_SET, the key is not modified.
+         * When MDB_cursor_op::MDB_NEXT, the key is modified with
+         * the key where the cursor is pointing to. In this case
+         * when the key that was given is different from the key
+         * the cursor is pointing to we return MDB_NOTFOUND.
+         */
+        std::remove_pointer_t<view_type> iter = *key;
+        int rc = mdb_cursor_get(handle_, &iter, value, op);
+        if(   MDB_SUCCESS == rc
+           && key->mv_data != iter.mv_data
+           && (key->mv_size != iter.mv_size || memcmp(iter.mv_data, key->mv_data, key->mv_size)))
+            rc = MDB_NOTFOUND;
+        return rc;
     }
 
     template <typename K, typename V, typename = constraint_t<K,V>>
@@ -463,17 +541,45 @@ public:
         int rc = 0;
 
         static_assert(extensions::is_contiguous<K>::value);
-        mdb_view<typename K::value_type> key_v(key.data(), key.size());
 
-        if constexpr(extensions::is_contiguous<V>::value)
+        mdb_view<uint8_t> key_v((uint8_t*)key.data(), key.size() * sizeof(typename K::value_type));
+        mdb_view<uint8_t> value_v;
+
+        if constexpr(std::is_same_v<V, torch::Tensor>)
         {
-            mdb_view<typename V::value_type> value_v(value.data(), value.size());
+            assert(value.is_contiguous());
+            auto lambda = [&](auto view, uint8_t szof)
+            {
+                assertm(value.numel() * szof >= view.size(), value.numel(), szof, view.size());
+                // NB. Quoting "Exposes the given data as a Tensor without taking ownership of the original data."
+                torch::Tensor blob = torch::from_blob(view.begin(), value.sizes(), value.options());
+                value.copy_(blob);  // take ownership
+            };
+
+            if(torch::kFloat == value.dtype())
+            {
+                mdb_view<uint8_t> value_v;
+                rc = get(key_v, value_v, op);
+                if(MDB_SUCCESS == rc)
+                    lambda(value_v, sizeof(float));
+            }
+            else if(torch::kUInt8 == value.dtype())
+            {
+                mdb_view<uint8_t> value_v;
+                rc = get(key_v, value_v, op);
+                if(MDB_SUCCESS == rc)
+                    lambda(value_v, sizeof(uint8_t));
+            }
+            else
+                assertm(false, value.dtype());
+        }
+        else if constexpr(extensions::is_contiguous<V>::value)
+        {
             rc = get(key_v, value_v, op);
             if(MDB_SUCCESS == rc)
             {
-                if(key_v.data() != key.data())
-                    memcpy(key.data(), key_v.begin(), key_v.size() * sizeof(typename K::value_type));
-                memcpy(value.data(), value_v.begin(), value_v.size() * sizeof(typename V::value_type));
+                assertm(value.size() * sizeof(typename V::value_type) >= value_v.size(), value.size(), sizeof(typename V::value_type), value_v.size(), key);
+                memcpy(value.data(), value_v.begin(), value_v.size());
             }
         }
         else

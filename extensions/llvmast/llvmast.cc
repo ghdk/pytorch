@@ -49,13 +49,15 @@ public:
         bool ret = RecursiveASTVisitor::TraverseFunctionDecl(declaration);
         ret = Breakpoint(Ancestry::FunctionDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,7>{Ancestry::LinkageSpecDecl,
-                                                                    Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::NamespaceDecl,
-                                                                    Ancestry::FriendDecl,
-                                                                    Ancestry::FunctionTemplateDecl,
-                                                                    Ancestry::CXXMethodDecl,
-                                                                    Ancestry::CXXDestructorDecl},
+        assertm(extensions::iter::in(std::array<size_t,9>{Ancestry::LinkageSpecDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::NamespaceDecl,
+                                                          Ancestry::FriendDecl,
+                                                          Ancestry::FunctionDecl,  // indirect
+                                                          Ancestry::FunctionTemplateDecl,
+                                                          Ancestry::CXXMethodDecl,
+                                                          Ancestry::CXXDestructorDecl,
+                                                          Ancestry::CXXConstructorDecl},  // indirect
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -63,12 +65,12 @@ public:
     }
     bool VisitFunctionDecl(const FunctionDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,6>{Ancestry::FunctionDecl,
-                                                                    Ancestry::CXXMethodDecl,
-                                                                    Ancestry::CXXConstructorDecl,
-                                                                    Ancestry::CXXDestructorDecl,
-                                                                    Ancestry::CXXConversionDecl,
-                                                                    Ancestry::CXXDeductionGuideDecl},
+        assertm(extensions::iter::in(std::array<size_t,6>{Ancestry::FunctionDecl,
+                                                          Ancestry::CXXMethodDecl,
+                                                          Ancestry::CXXConstructorDecl,
+                                                          Ancestry::CXXDestructorDecl,
+                                                          Ancestry::CXXConversionDecl,
+                                                          Ancestry::CXXDeductionGuideDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -124,18 +126,24 @@ public:
         bool ret = RecursiveASTVisitor::TraverseParmVarDecl(declaration);
         ret = Breakpoint(Ancestry::ParmVarDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,12>{Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                     Ancestry::FieldDecl,
-                                                                     Ancestry::TypedefDecl,
-                                                                     Ancestry::FunctionDecl,
-                                                                     Ancestry::ParmVarDecl,
-                                                                     Ancestry::TypeAliasDecl,
-                                                                     Ancestry::VarDecl,
-                                                                     Ancestry::TemplateTypeParmDecl,
-                                                                     Ancestry::NonTypeTemplateParmDecl,
-                                                                     Ancestry::CXXConstructorDecl,
-                                                                     Ancestry::CXXMethodDecl,
-                                                                     Ancestry::CXXDeductionGuideDecl},
+        assertm(extensions::iter::in(std::array<size_t,18>{Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                           Ancestry::FieldDecl,
+                                                           Ancestry::TypedefDecl,
+                                                           Ancestry::FunctionDecl,
+                                                           Ancestry::ParmVarDecl,
+                                                           Ancestry::TypeAliasDecl,
+                                                           Ancestry::VarDecl,
+                                                           Ancestry::TemplateTypeParmDecl,
+                                                           Ancestry::DecompositionDecl,  // indirect
+                                                           Ancestry::VarTemplateSpecializationDecl,  // indirect
+                                                           Ancestry::NonTypeTemplateParmDecl,
+                                                           Ancestry::StaticAssertDecl,  // indirect
+                                                           Ancestry::CXXRecordDecl,  // indirect
+                                                           Ancestry::CXXConversionDecl,  // indirect
+                                                           Ancestry::CXXDestructorDecl,  // indirect
+                                                           Ancestry::CXXConstructorDecl,
+                                                           Ancestry::CXXMethodDecl,
+                                                           Ancestry::CXXDeductionGuideDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -185,14 +193,11 @@ public:
             extensions::graphdb::feature::write(txn.vertex_, key, location);
 
             extensions::graphdb::graph::vertex(txn, extensions::rsse::schema::GRAPH, vtx, true);
-        }
 
-        {
             auto parent = second_back();
             if(!parent.has_value()) goto RETURN;
             assertm(parent.value()->traversed_ && parent.value()->visited_, ancestry_);
 
-            extensions::graphdb::schema::TransactionNode txn(env_, extensions::graphdb::flags::txn::WRITE);
             extensions::graphdb::graph::edge(txn, extensions::rsse::schema::GRAPH, parent.value()->vertex_, ancestry_.back().vertex_, true);
             extensions::graphdb::graph::edge(txn, extensions::rsse::schema::GRAPH, ancestry_.back().vertex_, parent.value()->vertex_, true);
         }
@@ -210,14 +215,19 @@ public:
         bool ret = RecursiveASTVisitor::TraverseCXXRecordDecl(declaration);
         ret = Breakpoint(Ancestry::CXXRecordDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,8>{Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::CXXRecordDecl,
-                                                                    Ancestry::LinkageSpecDecl,
-                                                                    Ancestry::NamespaceDecl,
-                                                                    Ancestry::ClassTemplateDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::CXXMethodDecl,
-                                                                    Ancestry::FunctionDecl},
+        assertm(extensions::iter::in(std::array<size_t,13>{Ancestry::TranslationUnitDecl,
+                                                           Ancestry::LinkageSpecDecl,
+                                                           Ancestry::NamespaceDecl,
+                                                           Ancestry::ClassTemplateDecl,
+                                                           Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                           Ancestry::ClassTemplateSpecializationDecl,
+                                                           Ancestry::FunctionDecl,
+                                                           Ancestry::FriendDecl,
+                                                           Ancestry::VarDecl,  // indirect
+                                                           Ancestry::CXXConstructorDecl,  // indirect
+                                                           Ancestry::CXXRecordDecl,
+                                                           Ancestry::CXXConversionDecl,
+                                                           Ancestry::CXXMethodDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -232,17 +242,20 @@ public:
         bool ret = RecursiveASTVisitor::TraverseRecordDecl(declaration);
         ret = Breakpoint(Ancestry::RecordDecl, ret);
 
-        assertm(parent.kind_.empty(), ancestry_);
+        assertm(extensions::iter::in(std::array<size_t,3>{Ancestry::TranslationUnitDecl,
+                                                          Ancestry::RecordDecl,
+                                                          Ancestry::FunctionDecl},  // indirect
+                                     parent.kind_), ancestry_);
 
         ancestry_.pop_back();
         return ret;
     }
     bool VisitRecordDecl(const RecordDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,4>{Ancestry::RecordDecl,
-                                                                    Ancestry::CXXRecordDecl,
-                                                                    Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl},
+        assertm(extensions::iter::in(std::array<size_t,4>{Ancestry::RecordDecl,
+                                                          Ancestry::CXXRecordDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -298,11 +311,17 @@ public:
         bool ret = RecursiveASTVisitor::TraverseTypedefDecl(declaration);
         ret = Breakpoint(Ancestry::TypedefDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,5>{Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::LinkageSpecDecl,
-                                                                    Ancestry::NamespaceDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::CXXRecordDecl},
+        assertm(extensions::iter::in(std::array<size_t,11>{Ancestry::TranslationUnitDecl,
+                                                           Ancestry::LinkageSpecDecl,
+                                                           Ancestry::NamespaceDecl,
+                                                           Ancestry::FunctionDecl,  // indirect
+                                                           Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                           Ancestry::ClassTemplateSpecializationDecl,
+                                                           Ancestry::VarDecl,  // indirect
+                                                           Ancestry::CXXMethodDecl,  // indirect
+                                                           Ancestry::CXXRecordDecl,
+                                                           Ancestry::CXXConversionDecl,  // indirect
+                                                           Ancestry::CXXConstructorDecl},  // indirect
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -333,8 +352,10 @@ public:
         bool ret = RecursiveASTVisitor::TraverseFieldDecl(declaration);
         ret = Breakpoint(Ancestry::FieldDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,2>{Ancestry::CXXRecordDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl},
+        assertm(extensions::iter::in(std::array<size_t,4>{Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::RecordDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -365,11 +386,12 @@ public:
         bool ret = RecursiveASTVisitor::TraverseCXXConstructorDecl(declaration);
         ret = Breakpoint(Ancestry::CXXConstructorDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,5>{Ancestry::CXXRecordDecl,
-                                                                    Ancestry::NamespaceDecl,
-                                                                    Ancestry::FunctionTemplateDecl,
-                                                                    Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl},
+        assertm(extensions::iter::in(std::array<size_t,6>{Ancestry::TranslationUnitDecl,
+                                                          Ancestry::NamespaceDecl,
+                                                          Ancestry::FunctionTemplateDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -400,8 +422,11 @@ public:
         bool ret = RecursiveASTVisitor::TraverseCXXDestructorDecl(declaration);
         ret = Breakpoint(Ancestry::CXXDestructorDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,2>{Ancestry::CXXRecordDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl},
+        assertm(extensions::iter::in(std::array<size_t,5>{Ancestry::NamespaceDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -432,12 +457,13 @@ public:
         bool ret = RecursiveASTVisitor::TraverseCXXMethodDecl(declaration);
         ret = Breakpoint(Ancestry::CXXMethodDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,6>{Ancestry::NamespaceDecl,
-                                                                    Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::FunctionTemplateDecl,
-                                                                    Ancestry::FriendDecl,
-                                                                    Ancestry::CXXRecordDecl},
+        assertm(extensions::iter::in(std::array<size_t,7>{Ancestry::NamespaceDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::FunctionTemplateDecl,
+                                                          Ancestry::FriendDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -446,10 +472,10 @@ public:
 
     bool VisitCXXMethodDecl(const CXXMethodDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,4>{Ancestry::CXXMethodDecl,
-                                                                    Ancestry::CXXConstructorDecl,
-                                                                    Ancestry::CXXDestructorDecl,
-                                                                    Ancestry::CXXConversionDecl},
+        assertm(extensions::iter::in(std::array<size_t,4>{Ancestry::CXXMethodDecl,
+                                                          Ancestry::CXXConstructorDecl,
+                                                          Ancestry::CXXDestructorDecl,
+                                                          Ancestry::CXXConversionDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -473,7 +499,7 @@ public:
         bool ret = RecursiveASTVisitor::TraverseTranslationUnitDecl(declaration);
         ret = Breakpoint(Ancestry::CXXMethodDecl, ret);
 
-        assertm(parent.kind_.empty(), ancestry_);
+        assertm(!parent.kind_, ancestry_);
 
         ancestry_.pop_back();
         return ret;
@@ -502,8 +528,9 @@ public:
         bool ret = RecursiveASTVisitor::TraverseNamespaceDecl(declaration);
         ret = Breakpoint(Ancestry::NamespaceDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,2>{Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::NamespaceDecl},
+        assertm(extensions::iter::in(std::array<size_t,3>{Ancestry::TranslationUnitDecl,
+                                                          Ancestry::LinkageSpecDecl,
+                                                          Ancestry::NamespaceDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -535,10 +562,11 @@ public:
         bool ret = RecursiveASTVisitor::TraverseClassTemplatePartialSpecializationDecl(declaration);
         ret = Breakpoint(Ancestry::ClassTemplatePartialSpecializationDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,4>{Ancestry::NamespaceDecl,
-                                                                    Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::CXXRecordDecl},
+        assertm(extensions::iter::in(std::array<size_t,5>{Ancestry::NamespaceDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -570,7 +598,9 @@ public:
         bool ret = RecursiveASTVisitor::TraverseClassTemplateSpecializationDecl(declaration);
         ret = Breakpoint(Ancestry::ClassTemplateSpecializationDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::NamespaceDecl},
+        assertm(extensions::iter::in(std::array<size_t,3>{Ancestry::NamespaceDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::LinkageSpecDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -579,8 +609,8 @@ public:
 
     bool VisitClassTemplateSpecializationDecl(const ClassTemplateSpecializationDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,2>{Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl},
+        assertm(extensions::iter::in(std::array<size_t,2>{Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -604,15 +634,17 @@ public:
         bool ret = RecursiveASTVisitor::TraverseTypeAliasDecl(declaration);
         ret = Breakpoint(Ancestry::TypeAliasDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,9>{Ancestry::CXXRecordDecl,
-                                                                    Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::TypeAliasTemplateDecl,
-                                                                    Ancestry::NamespaceDecl,
-                                                                    Ancestry::FunctionDecl,
-                                                                    Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::CXXConstructorDecl,
-                                                                    Ancestry::CXXMethodDecl},
+        assertm(extensions::iter::in(std::array<size_t,11>{Ancestry::ClassTemplateSpecializationDecl,
+                                                           Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                           Ancestry::TypeAliasTemplateDecl,
+                                                           Ancestry::NamespaceDecl,
+                                                           Ancestry::FunctionDecl,
+                                                           Ancestry::TranslationUnitDecl,
+                                                           Ancestry::LinkageSpecDecl,
+                                                           Ancestry::VarDecl,  // indirect
+                                                           Ancestry::CXXRecordDecl,
+                                                           Ancestry::CXXConstructorDecl,
+                                                           Ancestry::CXXMethodDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -644,8 +676,10 @@ public:
         bool ret = RecursiveASTVisitor::TraverseTypeAliasTemplateDecl(declaration);
         ret = Breakpoint(Ancestry::TypeAliasTemplateDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,2>{Ancestry::NamespaceDecl,
-                                                                    Ancestry::CXXRecordDecl},
+        assertm(extensions::iter::in(std::array<size_t,4>{Ancestry::NamespaceDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -677,9 +711,9 @@ public:
         bool ret = RecursiveASTVisitor::TraverseLinkageSpecDecl(declaration);
         ret = Breakpoint(Ancestry::LinkageSpecDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,3>{Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::LinkageSpecDecl,
-                                                                    Ancestry::NamespaceDecl},
+        assertm(extensions::iter::in(std::array<size_t,3>{Ancestry::TranslationUnitDecl,
+                                                          Ancestry::LinkageSpecDecl,
+                                                          Ancestry::NamespaceDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -709,8 +743,9 @@ public:
         bool ret = RecursiveASTVisitor::TraverseFriendDecl(declaration);
         ret = Breakpoint(Ancestry::FriendDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,2>{Ancestry::CXXRecordDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl},
+        assertm(extensions::iter::in(std::array<size_t,3>{Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -740,12 +775,13 @@ public:
         bool ret = RecursiveASTVisitor::TraverseClassTemplateDecl(declaration);
         ret = Breakpoint(Ancestry::ClassTemplateDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,6>{Ancestry::NamespaceDecl,
-                                                                    Ancestry::FriendDecl,
-                                                                    Ancestry::CXXRecordDecl,
-                                                                    Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl},
+        assertm(extensions::iter::in(std::array<size_t,7>{Ancestry::NamespaceDecl,
+                                                          Ancestry::FriendDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::LinkageSpecDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -775,9 +811,11 @@ public:
         bool ret = RecursiveASTVisitor::TraverseCXXConversionDecl(declaration);
         ret = Breakpoint(Ancestry::CXXConversionDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,3>{Ancestry::CXXRecordDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::FunctionTemplateDecl},
+        assertm(extensions::iter::in(std::array<size_t,5>{Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::FunctionTemplateDecl,
+                                                          Ancestry::NamespaceDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -807,20 +845,21 @@ public:
         bool ret = RecursiveASTVisitor::TraverseVarDecl(declaration);
         ret = Breakpoint(Ancestry::VarDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,14>{Ancestry::TranslationUnitDecl,
-                                                                     Ancestry::LinkageSpecDecl,
-                                                                     Ancestry::FunctionDecl,
-                                                                     Ancestry::NamespaceDecl,
-                                                                     Ancestry::VarDecl,
-                                                                     Ancestry::ClassTemplateSpecializationDecl,
-                                                                     Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                     Ancestry::DecompositionDecl,
-                                                                     Ancestry::VarTemplateDecl,
-                                                                     Ancestry::CXXDestructorDecl,
-                                                                     Ancestry::CXXConversionDecl,
-                                                                     Ancestry::CXXRecordDecl,
-                                                                     Ancestry::CXXConstructorDecl,
-                                                                     Ancestry::CXXMethodDecl},
+        assertm(extensions::iter::in(std::array<size_t,15>{Ancestry::TranslationUnitDecl,
+                                                           Ancestry::LinkageSpecDecl,
+                                                           Ancestry::FunctionDecl,
+                                                           Ancestry::NamespaceDecl,
+                                                           Ancestry::VarDecl,
+                                                           Ancestry::ClassTemplateSpecializationDecl,
+                                                           Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                           Ancestry::DecompositionDecl,
+                                                           Ancestry::VarTemplateDecl,
+                                                           Ancestry::FieldDecl,  // indirect
+                                                           Ancestry::CXXDestructorDecl,
+                                                           Ancestry::CXXConversionDecl,
+                                                           Ancestry::CXXRecordDecl,
+                                                           Ancestry::CXXConstructorDecl,
+                                                           Ancestry::CXXMethodDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -829,9 +868,11 @@ public:
 
     bool VisitVarDecl(const VarDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,3>{Ancestry::VarDecl,
-                                                                    Ancestry::ParmVarDecl,
-                                                                    Ancestry::DecompositionDecl},
+        assertm(extensions::iter::in(std::array<size_t,5>{Ancestry::VarDecl,
+                                                          Ancestry::ParmVarDecl,
+                                                          Ancestry::DecompositionDecl,
+                                                          Ancestry::VarTemplateSpecializationDecl,  // indirect
+                                                          Ancestry::VarTemplatePartialSpecializationDecl},  // indirect
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -853,8 +894,11 @@ public:
         bool ret = RecursiveASTVisitor::TraverseDecompositionDecl(declaration);
         ret = Breakpoint(Ancestry::DecompositionDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,2>{Ancestry::FunctionDecl,
-                                                                    Ancestry::CXXMethodDecl},
+        assertm(extensions::iter::in(std::array<size_t,5>{Ancestry::FunctionDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::VarDecl,
+                                                          Ancestry::CXXConstructorDecl,  // indirect
+                                                          Ancestry::CXXMethodDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -863,7 +907,7 @@ public:
 
     bool VisitDecompositionDecl(const DecompositionDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::DecompositionDecl},
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::DecompositionDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -885,7 +929,7 @@ public:
         bool ret = RecursiveASTVisitor::TraverseCXXDeductionGuideDecl(declaration);
         ret = Breakpoint(Ancestry::CXXDeductionGuideDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::FunctionTemplateDecl},
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::FunctionTemplateDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -894,7 +938,7 @@ public:
 
     bool VisitCXXDeductionGuideDecl(const CXXDeductionGuideDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::CXXDeductionGuideDecl},
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::CXXDeductionGuideDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -916,12 +960,13 @@ public:
         bool ret = RecursiveASTVisitor::TraverseFunctionTemplateDecl(declaration);
         ret = Breakpoint(Ancestry::FunctionTemplateDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,6>{Ancestry::NamespaceDecl,
-                                                                    Ancestry::FriendDecl,
-                                                                    Ancestry::ClassTemplateSpecializationDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::TranslationUnitDecl,
-                                                                    Ancestry::CXXRecordDecl},
+        assertm(extensions::iter::in(std::array<size_t,7>{Ancestry::NamespaceDecl,
+                                                          Ancestry::FriendDecl,
+                                                          Ancestry::ClassTemplateSpecializationDecl,
+                                                          Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                          Ancestry::TranslationUnitDecl,
+                                                          Ancestry::LinkageSpecDecl,
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -930,7 +975,7 @@ public:
 
     bool VisitFunctionTemplateDecl(const FunctionTemplateDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::FunctionTemplateDecl},
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::FunctionTemplateDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -952,15 +997,18 @@ public:
         bool ret = RecursiveASTVisitor::TraverseTemplateTypeParmDecl(declaration);
         ret = Breakpoint(Ancestry::TemplateTypeParmDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,9>{Ancestry::FunctionTemplateDecl,
-                                                                    Ancestry::ClassTemplateDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::TypeAliasTemplateDecl,  // indirect
-                                                                    Ancestry::VarTemplateDecl,
-                                                                    Ancestry::VarDecl,
-                                                                    Ancestry::CXXMethodDecl,  // indirect
-                                                                    Ancestry::CXXConstructorDecl,  // indirect
-                                                                    Ancestry::CXXRecordDecl},  // indirect
+        assertm(extensions::iter::in(std::array<size_t,12>{Ancestry::FunctionTemplateDecl,
+                                                           Ancestry::ClassTemplateDecl,
+                                                           Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                           Ancestry::TypeAliasTemplateDecl,  // indirect
+                                                           Ancestry::VarTemplateDecl,
+                                                           Ancestry::VarDecl,
+                                                           Ancestry::VarTemplatePartialSpecializationDecl,
+                                                           Ancestry::CXXConversionDecl,  // indirect
+                                                           Ancestry::CXXDestructorDecl,  // indirect
+                                                           Ancestry::CXXMethodDecl,  // indirect
+                                                           Ancestry::CXXConstructorDecl,  // indirect
+                                                           Ancestry::CXXRecordDecl},  // indirect
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -969,7 +1017,7 @@ public:
 
     bool VisitTemplateTypeParmDecl(const TemplateTypeParmDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::TemplateTypeParmDecl},
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::TemplateTypeParmDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -991,7 +1039,9 @@ public:
         bool ret = RecursiveASTVisitor::TraverseVarTemplateDecl(declaration);
         ret = Breakpoint(Ancestry::VarTemplateDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::NamespaceDecl},  // indirect
+        assertm(extensions::iter::in(std::array<size_t,3>{Ancestry::TranslationUnitDecl,
+                                                          Ancestry::NamespaceDecl,  // indirect
+                                                          Ancestry::CXXRecordDecl},
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -1000,7 +1050,7 @@ public:
 
     bool VisitVarTemplateDecl(const VarTemplateDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::VarTemplateDecl},
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::VarTemplateDecl},
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -1022,13 +1072,16 @@ public:
         bool ret = RecursiveASTVisitor::TraverseNonTypeTemplateParmDecl(declaration);
         ret = Breakpoint(Ancestry::NonTypeTemplateParmDecl, ret);
 
-        assertm(extensions::iter::in(std::array<std::string_view,7>{Ancestry::ClassTemplateDecl,
-                                                                    Ancestry::ClassTemplatePartialSpecializationDecl,
-                                                                    Ancestry::CXXConstructorDecl,  // indirect
-                                                                    Ancestry::CXXMethodDecl,  // indirect
-                                                                    Ancestry::TypeAliasTemplateDecl,
-                                                                    Ancestry::FunctionTemplateDecl,
-                                                                    Ancestry::VarTemplateDecl},
+        assertm(extensions::iter::in(std::array<size_t,10>{Ancestry::ClassTemplateDecl,
+                                                           Ancestry::ClassTemplatePartialSpecializationDecl,
+                                                           Ancestry::TypeAliasTemplateDecl,
+                                                           Ancestry::FunctionTemplateDecl,
+                                                           Ancestry::VarTemplateDecl,
+                                                           Ancestry::VarDecl,  // indirect
+                                                           Ancestry::VarTemplatePartialSpecializationDecl,
+                                                           Ancestry::CXXConstructorDecl,  // indirect
+                                                           Ancestry::CXXMethodDecl,  // indirect
+                                                           Ancestry::CXXDestructorDecl},  // indirect
                                      parent.kind_), ancestry_);
 
         ancestry_.pop_back();
@@ -1037,7 +1090,113 @@ public:
 
     bool VisitNonTypeTemplateParmDecl(const NonTypeTemplateParmDecl *declaration)
     {
-        assertm(extensions::iter::in(std::array<std::string_view,1>{Ancestry::NonTypeTemplateParmDecl},
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::NonTypeTemplateParmDecl},
+                                     ancestry_.back().kind_), ancestry_);
+        ancestry_.back().visited_ = true;
+
+        auto [location,lineno] = LocationOf(declaration);
+        ancestry_.back().location_ = location;
+        ancestry_.back().lineno_ = lineno;
+
+        ancestry_.back().token_ = NULLSTR;
+
+        return true;
+    }
+
+    bool TraverseStaticAssertDecl(StaticAssertDecl *declaration)
+    {
+        auto parent = !ancestry_.empty() ? ancestry_.back() : Ancestry();
+
+        ancestry_.push_back({Ancestry::StaticAssertDecl});
+        ancestry_.back().traversed_ = true;
+        bool ret = RecursiveASTVisitor::TraverseStaticAssertDecl(declaration);
+        ret = Breakpoint(Ancestry::StaticAssertDecl, ret);
+
+        assertm(extensions::iter::in(std::array<size_t,11>{Ancestry::NamespaceDecl,
+                                                           Ancestry::TranslationUnitDecl,
+                                                           Ancestry::ClassTemplatePartialSpecializationDecl,  // indirect
+                                                           Ancestry::ClassTemplateSpecializationDecl,
+                                                           Ancestry::VarDecl,  // indirect
+                                                           Ancestry::FunctionDecl,  // indirect
+                                                           Ancestry::CXXConversionDecl,  // indirect
+                                                           Ancestry::CXXDestructorDecl,  // indirect
+                                                           Ancestry::CXXConstructorDecl,  // indirect
+                                                           Ancestry::CXXMethodDecl,  // indirect
+                                                           Ancestry::CXXRecordDecl},
+                                     parent.kind_), ancestry_);
+
+        ancestry_.pop_back();
+        return ret;
+    }
+
+    bool VisitStaticAssertDecl(const StaticAssertDecl *declaration)
+    {
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::StaticAssertDecl},
+                                     ancestry_.back().kind_), ancestry_);
+        ancestry_.back().visited_ = true;
+
+        auto [location,lineno] = LocationOf(declaration);
+        ancestry_.back().location_ = location;
+        ancestry_.back().lineno_ = lineno;
+
+        ancestry_.back().token_ = NULLSTR;
+
+        return true;
+    }
+
+    bool TraverseVarTemplatePartialSpecializationDecl(VarTemplatePartialSpecializationDecl *declaration)
+    {
+        auto parent = !ancestry_.empty() ? ancestry_.back() : Ancestry();
+
+        ancestry_.push_back({Ancestry::VarTemplatePartialSpecializationDecl});
+        ancestry_.back().traversed_ = true;
+        bool ret = RecursiveASTVisitor::TraverseVarTemplatePartialSpecializationDecl(declaration);
+        ret = Breakpoint(Ancestry::VarTemplatePartialSpecializationDecl, ret);
+
+        assertm(extensions::iter::in(std::array<size_t,2>{Ancestry::NamespaceDecl,
+                                                          Ancestry::CXXRecordDecl},
+                                     parent.kind_), ancestry_);
+
+        ancestry_.pop_back();
+        return ret;
+    }
+
+    bool VisitVarTemplatePartialSpecializationDecl(const VarTemplatePartialSpecializationDecl *declaration)
+    {
+        assertm(extensions::iter::in(std::array<size_t,1>{Ancestry::VarTemplatePartialSpecializationDecl},
+                                     ancestry_.back().kind_), ancestry_);
+        ancestry_.back().visited_ = true;
+
+        auto [location,lineno] = LocationOf(declaration);
+        ancestry_.back().location_ = location;
+        ancestry_.back().lineno_ = lineno;
+
+        ancestry_.back().token_ = NULLSTR;
+
+        return true;
+    }
+
+    bool TraverseVarTemplateSpecializationDecl(VarTemplateSpecializationDecl *declaration)
+    {
+        auto parent = !ancestry_.empty() ? ancestry_.back() : Ancestry();
+
+        ancestry_.push_back({Ancestry::VarTemplateSpecializationDecl});
+        ancestry_.back().traversed_ = true;
+        bool ret = RecursiveASTVisitor::TraverseVarTemplateSpecializationDecl(declaration);
+        ret = Breakpoint(Ancestry::VarTemplateSpecializationDecl, ret);
+
+        assertm(extensions::iter::in(std::array<size_t,2>{Ancestry::NamespaceDecl,
+                                                          Ancestry::CXXRecordDecl},
+                                     parent.kind_), ancestry_);
+
+        ancestry_.pop_back();
+        return ret;
+    }
+
+    bool VisitVarTemplateSpecializationDecl(const VarTemplateSpecializationDecl *declaration)
+    {
+        assertm(extensions::iter::in(std::array<size_t,2>{Ancestry::VarTemplateSpecializationDecl,
+                                                          Ancestry::VarTemplatePartialSpecializationDecl},  // indirect
                                      ancestry_.back().kind_), ancestry_);
         ancestry_.back().visited_ = true;
 
@@ -1074,6 +1233,22 @@ private:
         std::string_view token,
         std::string_view location)
     {
+        // Keep a history of <token,location> pairs to confirm that when a pair is in the history
+        // the it should have been found by the logic above.
+        using record_t = std::pair<std::string, std::string>;
+        struct hasher
+        {
+            std::size_t operator()(record_t record) const
+            {
+                auto a = std::hash<typename record_t::first_type>{}(std::get<0>(record));
+                auto b = std::hash<typename record_t::second_type>{}(std::get<1>(record));
+                return a ^ b;
+            }
+        };
+        static std::unordered_set<record_t, hasher> history;
+        bool should_have_been_found = 0 != history.count(record_t{token, location});
+        // if(!should_have_been_found) history.insert(record_t{token, location});  // uncomment to debug with in-memory history
+
         /**
          * The same token might appear under different files. In that case we want to
          * apply ref counting over the token, but create a new vertex for the new
@@ -1081,11 +1256,7 @@ private:
          */
         using key_l = extensions::graphdb::schema::list_key_t;
         using key_f = extensions::graphdb::schema::vertex_feature_key_t;
-        key_f key{
-            extensions::graphdb::schema::LIST_TAIL_MAX,
-            extensions::graphdb::schema::LIST_TAIL_MAX,
-            extensions::graphdb::schema::LIST_TAIL_MAX
-        };
+        key_f key;
 
         extensions::graphdb::hash::visitor_t<key_f> visitor =
         [&](key_l h4sh, key_f k3y)
@@ -1116,6 +1287,7 @@ private:
         };
         extensions::graphdb::schema::list_key_t hash = {extensions::graphdb::hash::make(token), 0};
         extensions::graphdb::hash::visit(txn.vertex_.hash_, hash, visitor);
+        assertm(!should_have_been_found || key.attribute(), token, hash, location);  // no key in the DB has attribute = 0
         return key;
     }
 
@@ -1148,46 +1320,51 @@ private:
         return ret;
     }
 
-    bool Breakpoint(std::string_view kind, bool forward_to_AST_visitor)
+    bool Breakpoint(size_t kind, bool forward_to_AST_visitor)
     {
         const std::string_view location = "";
         const size_t lineno = 0;
         if(extensions::ends_with(ancestry_.back().location_, location) && ancestry_.back().lineno_ == lineno)
-            std::cerr << kind << ":" << ancestry_ << std::endl;
+            std::cerr << Ancestry::map[kind] << ":" << ancestry_ << std::endl;
         return forward_to_AST_visitor;
     }
 
 private:
     struct Ancestry
     {
-        static constexpr std::string_view FunctionDecl = "FunctionDecl";
-        static constexpr std::string_view ParmVarDecl = "ParmVarDecl";
-        static constexpr std::string_view VarDecl = "VarDecl";
-        static constexpr std::string_view RecordDecl = "RecordDecl";
-        static constexpr std::string_view TypedefDecl = "TypedefDecl";
-        static constexpr std::string_view FieldDecl = "FieldDecl";
-        static constexpr std::string_view FunctionTemplateDecl = "FunctionTemplateDecl";
-        static constexpr std::string_view TranslationUnitDecl = "TranslationUnitDecl";
-        static constexpr std::string_view NamespaceDecl = "NamespaceDecl";
-        static constexpr std::string_view ClassTemplateDecl = "ClassTemplateDecl";
-        static constexpr std::string_view ClassTemplateSpecializationDecl = "ClassTemplateSpecializationDecl";
-        static constexpr std::string_view ClassTemplatePartialSpecializationDecl = "ClassTemplatePartialSpecializationDecl";
-        static constexpr std::string_view TypeAliasDecl = "TypeAliasDecl";
-        static constexpr std::string_view TypeAliasTemplateDecl = "TypeAliasTemplateDecl";
-        static constexpr std::string_view LinkageSpecDecl = "LinkageSpecDecl";
-        static constexpr std::string_view FriendDecl = "FriendDecl";
-        static constexpr std::string_view DecompositionDecl = "DecompositionDecl";
-        static constexpr std::string_view TemplateTypeParmDecl = "TemplateTypeParmDecl";
-        static constexpr std::string_view VarTemplateDecl = "VarTemplateDecl";
-        static constexpr std::string_view NonTypeTemplateParmDecl = "NonTypeTemplateParmDecl";
-        static constexpr std::string_view CXXRecordDecl = "CXXRecordDecl";
-        static constexpr std::string_view CXXConstructorDecl = "CXXConstructorDecl";
-        static constexpr std::string_view CXXDestructorDecl = "CXXDestructorDecl";
-        static constexpr std::string_view CXXMethodDecl = "CXXMethodDecl";
-        static constexpr std::string_view CXXConversionDecl = "CXXConversionDecl";
-        static constexpr std::string_view CXXDeductionGuideDecl = "CXXDeductionGuideDecl";
+        static constexpr size_t FunctionDecl = 1000;
+        static constexpr size_t ParmVarDecl = 1001;
+        static constexpr size_t VarDecl = 1002;
+        static constexpr size_t RecordDecl = 1003;
+        static constexpr size_t TypedefDecl = 1004;
+        static constexpr size_t FieldDecl = 1005;
+        static constexpr size_t FunctionTemplateDecl = 1006;
+        static constexpr size_t TranslationUnitDecl = 1007;
+        static constexpr size_t NamespaceDecl = 1008;
+        static constexpr size_t ClassTemplateDecl = 1009;
+        static constexpr size_t ClassTemplateSpecializationDecl = 1010;
+        static constexpr size_t ClassTemplatePartialSpecializationDecl = 1011;
+        static constexpr size_t TypeAliasDecl = 1012;
+        static constexpr size_t TypeAliasTemplateDecl = 1013;
+        static constexpr size_t LinkageSpecDecl = 1014;
+        static constexpr size_t FriendDecl = 1015;
+        static constexpr size_t DecompositionDecl = 1016;
+        static constexpr size_t TemplateTypeParmDecl = 1017;
+        static constexpr size_t VarTemplateDecl = 1018;
+        static constexpr size_t NonTypeTemplateParmDecl = 1019;
+        static constexpr size_t StaticAssertDecl = 1020;
+        static constexpr size_t VarTemplatePartialSpecializationDecl = 1021;
+        static constexpr size_t VarTemplateSpecializationDecl = 1022;
+        static constexpr size_t CXXRecordDecl = 2000;
+        static constexpr size_t CXXConstructorDecl = 2001;
+        static constexpr size_t CXXDestructorDecl = 2002;
+        static constexpr size_t CXXMethodDecl = 2003;
+        static constexpr size_t CXXConversionDecl = 2004;
+        static constexpr size_t CXXDeductionGuideDecl = 2005;
 
-        Ancestry(std::string_view kind)
+        static std::unordered_map<size_t, std::string_view> map;
+
+        Ancestry(size_t kind)
         : vertex_{}
         , traversed_{}
         , visited_{}
@@ -1202,8 +1379,8 @@ private:
         size_t vertex_;  // the vertex index as it was captured in the DB
         bool traversed_;  // true when the node is traversed
         bool visited_;  // true when the node is visited
-        std::string_view kind_;  // captures the type of the AST node; When a Visit* method is reached for
-                                 // which the Traverse* is not defined, the Trace() will not help!
+        size_t kind_;  // captures the type of the AST node; When a Visit* method is reached for
+                       // which the Traverse* is not defined, the Trace() will not help!
         std::string token_;
         std::string location_;
         size_t lineno_;
@@ -1230,12 +1407,45 @@ private:
     friend std::ostream& operator<<(std::ostream& strm, std::list<FindNamedClassVisitor::Ancestry> const& other);
 };
 
+std::unordered_map<size_t, std::string_view> FindNamedClassVisitor::Ancestry::map = 
+{
+    {FunctionDecl, "FunctionDecl"},
+    {ParmVarDecl, "ParmVarDecl"},
+    {VarDecl, "VarDecl"},
+    {RecordDecl, "RecordDecl"},
+    {TypedefDecl, "TypedefDecl"},
+    {FieldDecl, "FieldDecl"},
+    {FunctionTemplateDecl, "FunctionTemplateDecl"},
+    {TranslationUnitDecl, "TranslationUnitDecl"},
+    {NamespaceDecl, "NamespaceDecl"},
+    {ClassTemplateDecl, "ClassTemplateDecl"},
+    {ClassTemplateSpecializationDecl, "ClassTemplateSpecializationDecl"},
+    {ClassTemplatePartialSpecializationDecl, "ClassTemplatePartialSpecializationDecl"},
+    {TypeAliasDecl, "TypeAliasDecl"},
+    {TypeAliasTemplateDecl, "TypeAliasTemplateDecl"},
+    {LinkageSpecDecl, "LinkageSpecDecl"},
+    {FriendDecl, "FriendDecl"},
+    {DecompositionDecl, "DecompositionDecl"},
+    {TemplateTypeParmDecl, "TemplateTypeParmDecl"},
+    {VarTemplateDecl, "VarTemplateDecl"},
+    {NonTypeTemplateParmDecl, "NonTypeTemplateParmDecl"},
+    {StaticAssertDecl, "StaticAssertDecl"},
+    {VarTemplatePartialSpecializationDecl, "VarTemplatePartialSpecializationDecl"},
+    {VarTemplateSpecializationDecl, "VarTemplateSpecializationDecl"},
+    {CXXRecordDecl, "CXXRecordDecl"},
+    {CXXConstructorDecl, "CXXConstructorDecl"},
+    {CXXDestructorDecl, "CXXDestructorDecl"},
+    {CXXMethodDecl, "CXXMethodDecl"},
+    {CXXConversionDecl, "CXXConversionDecl"},
+    {CXXDeductionGuideDecl, "CXXDeductionGuideDecl"}
+};
+
 std::ostream& operator<<(std::ostream& strm, FindNamedClassVisitor::Ancestry const& other)
 {
     std::ostringstream out;
     out << other.location_ << ":" << other.lineno_ << ":" << other.token_;
     out << " " << other.vertex_ << "," << other.traversed_ << "," << other.visited_;
-    out << " " << other.kind_;
+    out << " " << FindNamedClassVisitor::Ancestry::map[other.kind_];
     return strm << out.str();
 }
 

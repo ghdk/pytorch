@@ -99,6 +99,8 @@ class Test(unittest.TestCase):
             assert 0 != head and 0 == tail, f"head={head}, tail={tail}"
             with env.begin(db=VSL, parent=txn, write=True) as txnc:
                 value = txnc.get(struct.pack('=QQ', head, tail))
+                assert 32 == len(value), f"len={len(value)}"  # header == 32 bytes
+                value = txnc.get(struct.pack('=QQ', head, 1))
                 assert graphdb.PAGE_SIZE == len(value), f"len={len(value)}"
 
     @rm_test_dir
@@ -124,7 +126,7 @@ class Test(unittest.TestCase):
             head,tail = struct.unpack('=QQ', value)
             assert 0 != head and 0 == tail, f"head={head}, tail={tail}"
             with env.begin(db=VSL, parent=txn, write=True) as txnc:
-                value = txnc.get(struct.pack('=QQ', head, tail))
+                value = txnc.get(struct.pack('=QQ', head, 1))
                 assert graphdb.PAGE_SIZE == len(value), f"len={len(value)}"
                 assert 0x80 == value[0], f"[0]={value[0]}"
                 assert 0x1  == value[-1], f"[-1]={value[-1]}"
@@ -175,10 +177,10 @@ class Test(unittest.TestCase):
                 headD, tailD = struct.unpack('=QQ', keyD)
                 assert 0 == headA, f"{headA}"
                 assert headB == headC, f"{headB} == {headC}"
-                assert [0,0,1,0xFFFFFFFFFFFFFFFF] == [tailA, tailB, tailC, tailD], f"{[tailA, tailB, tailC, tailD]}"
+                assert [0,0,1,2] == [tailA, tailB, tailC, tailD], f"{[tailA, tailB, tailC, tailD]}"
                 
-                # verify the end node
-                length, size, hash, refcount = struct.unpack('=QQQQ', valueD)
+                # verify the header node
+                length, size, hash, refcount = struct.unpack('=QQQQ', valueB)
                 assert 2 == length, f"{length}"
                 assert 2*graphdb.PAGE_SIZE == size, f"{size}"
                 assert 0 == hash, f"{hash}"
@@ -198,12 +200,13 @@ class Test(unittest.TestCase):
             with txn.cursor() as crs:
                 # The adj mtx is expanded only for the vertices of the 1st page,
                 # hence we only have the 1st node of each row of the adj mtx
-                expected  = [(head,0) for head,tail in adj_mtx_heads]
+                expected  = [(head,0) for head,tail in adj_mtx_heads]  # the headers
+                expected += [(head,1) for head,tail in adj_mtx_heads]  # one page for each vertex
                 expected += [(0,0)]  # the AML's metadata list
                 expected = sorted(expected)
                 pages = [i for i in iter(crs)]
                 pages_keys = [struct.unpack('=QQ', key) for key,_ in pages]
-                pages_keys = [k for k in pages_keys if k[1] != 0xFFFFFFFFFFFFFFFF]
+                pages_keys = [k for k in pages_keys]
                 pages_keys = sorted(pages_keys)
                 assert expected == pages_keys, f"{expected} == {pages_keys}"
 
@@ -258,8 +261,8 @@ class Test(unittest.TestCase):
                 assert 0 == headA, f"{headA}"
                 assert headB == head, f"{headB} == {head}"
                 assert headC == head, f"{headC} == {head}"
-                assert [0,0,0xFFFFFFFFFFFFFFFF] == [tailA, tailB, tailC], f"{[tailA, tailB, tailC]}"
-                tensor = torch.frombuffer(valueB, dtype=torch.uint8, count=len(valueB), requires_grad=False)
+                assert [0,0,1] == [tailA, tailB, tailC], f"{[tailA, tailB, tailC]}"
+                tensor = torch.frombuffer(valueC, dtype=torch.uint8, count=len(valueC), requires_grad=False)
                 
                 # on error print the whole tensor
                 torch.set_printoptions(profile="full")
@@ -275,8 +278,8 @@ class Test(unittest.TestCase):
                 assert bitarray.get(tensor, indexes[1]+1), f"{tensor}"
                 assert bitarray.get(tensor, indexes[2]-1), f"{tensor}"
                 
-                # verify the end node
-                length, size, hash, refcount = struct.unpack('=QQQQ', valueC)
+                # verify the header node
+                length, size, hash, refcount = struct.unpack('=QQQQ', valueB)
                 assert 1 == length, f"{length}"
                 assert graphdb.PAGE_SIZE == size, f"{size}"
                 assert 0 == hash, f"{hash}"

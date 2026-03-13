@@ -1,4 +1,4 @@
-#include "../../system.h"
+#include "../system.h"
 #include "parallel/module.h"
 #include "linalg/module.h"
 

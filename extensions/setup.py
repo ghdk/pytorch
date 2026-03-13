@@ -62,7 +62,26 @@ class unittest(Command):
             except:
                 tests_failed.append(test)
         print("failed tests =", tests_failed)
-        
+
+class BuildWithCompilationDB(cpp_extension.BuildExtension):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    def build_extension(self, ext: Extension):
+        super().build_extension(ext)
+
+        # preserve the extension's compilation DB created by clang
+        db = 'compile_commands.json'
+        root = Path(__file__).parent
+        temp = Path(self.build_temp) / Path(db)
+        out = root / Path(db + '.' + ext.name)
+
+        with open(temp, 'r') as i:
+            with open(out, 'w') as o:
+                o.write('[\n')
+                o.write(i.read())
+                o.write(']')
+
 def buildlib():
     ret = None
     for arg in sys.argv:
@@ -117,18 +136,20 @@ def llvm_config():
     libs = proc.stdout.decode('ascii')
     libs = libs.strip()
     libs = libs.split(' ')
-    clanglibs = ['-lclangFrontend',
-                 '-lclangSerialization',
-                 '-lclangDriver',
-                 '-lclangParse',
-                 '-lclangSema',
-                 '-lclangAnalysis',
-                 '-lclangAST',
-                 '-lclangASTMatchers',
-                 '-lclangBasic',
-                 '-lclangEdit',
-                 '-lclangLex',
-                 '-lclangTooling']
+    clanglibs = [
+        '-lclangAST',
+        '-lclangFrontend',
+        '-lclangSerialization',
+        '-lclangDriver',
+        '-lclangParse',
+        '-lclangSema',
+        '-lclangAnalysis',
+        '-lclangASTMatchers',
+        '-lclangEdit',
+        '-lclangLex',
+        '-lclangBasic',
+        '-lclangTooling'
+    ]
     libs = clanglibs + libs
     cmd = [EXT_USE_LLVM_CONFIG, '--libdir']
     proc = subprocess.run(cmd,
@@ -154,23 +175,10 @@ sanitizer_flags = ['-fsanitize=undefined']
 extra_cpp_flags  = ['-g', '-O0', '-std=c++17', '-pedantic', '-Wall', '-Wextra', '-Wabi', '-ferror-limit=1', '-fvisibility=hidden', '-DPYDEF', '-DPYBIND11_DETAILED_ERROR_MESSAGES']
 extra_cpp_flags += gsl_conf_flags
 extra_cpp_flags += sanitizer_flags
+extra_cpp_flags += ['-MJ', './compile_commands.json']  # https://sarcasm.github.io/notes/dev/compilation-database.html
 extra_ld_flags  = []
 extra_ld_flags += ['-lubsan'] if IS_LINUX else []
 extra_ld_flags += sanitizer_flags
-
-spl = lambda p: ["-I"+path+p for path in sys.path if 'site-packages' in path]
-with open("./llvmast/cached_cflags.py", 'w') as f:
-    print(f"""CFLAGS={extra_cpp_flags + llvm_conf_flags[0] + lmdb_conf_flags[0] +
-                      ["-I" + get_paths()['include']] +
-                      ["-resource-dir", "/Library/Developer/CommandLineTools/usr/lib/clang/15.0.0"] +
-                      ["-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"] +
-                      ["-I/usr/local/include"] +
-                      spl("/torch/include") +
-                      spl("/torch/include/torch/csrc/api/include") +
-                      spl("/torch/include/TH") + 
-                      spl("/torch/include/THC") +
-                      ["-Wno-unused-variable", "-Wno-unused-parameter"]}""",
-          file=f)
 
 setup(name='extensions',
       packages=[],
@@ -231,6 +239,8 @@ setup(name='extensions',
                                      extra_link_args = extra_ld_flags
                                                      + llvm_conf_flags[2] + llvm_conf_flags[3]
                                                      + (['-ltinfo'] if IS_LINUX else [])
+                                                     + (['-lzstd'] if IS_LINUX else [])
+                                                     + (['-l:libclang-cpp.so.21.1'] if IS_LINUX else [])
                                                      + (['-l:graph.so'] if IS_LINUX else [])
                                                      + (['-l:graphdb.so'] if IS_LINUX else [])
                                                      + lmdb_conf_flags[2]),
@@ -243,7 +253,8 @@ setup(name='extensions',
                                      extra_compile_args=extra_cpp_flags,
                                      extra_link_args= extra_ld_flags),
       ],
-      cmdclass={'build_ext': cpp_extension.BuildExtension,
-                'clean': clean,
-                'test': unittest},
+      cmdclass={
+          'build_ext': BuildWithCompilationDB,
+          'clean': clean,
+          'test': unittest},
       install_requires=['torch'])

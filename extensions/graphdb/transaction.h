@@ -151,14 +151,14 @@ class PyTransactionNode
     extensions::ptr_u<extensions::graphdb::schema::TransactionNode> txn_;
 
 public:
-    extensions::graphdb::schema::TransactionNode& txn()
+    extensions::graphdb::schema::TransactionNode const& txn() const
     {
         return *txn_;
     }
 
-    extensions::graphdb::schema::TransactionNode const& txn() const
+    extensions::graphdb::schema::TransactionNode& txn()
     {
-        return const_cast<PyTransactionNode*>(this)->txn();
+        return const_cast<extensions::graphdb::schema::TransactionNode&>(static_cast<PyTransactionNode const*>(this)->txn());
     }
 
 public:

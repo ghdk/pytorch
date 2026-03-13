@@ -21,24 +21,23 @@ void extensions::graphdb::graph::read(extensions::graphdb::Environment& env,
 {
     int rc = 0;
     using hint_t = extensions::graphdb::schema::list_key_t;
-    using end_t  = extensions::graphdb::schema::list_end_t;
+    using hdr_t  = extensions::graphdb::schema::list_hdr_t;
 
     {
         extensions::graphdb::schema::TransactionNode session{env, extensions::graphdb::flags::txn::READ};
 
         hint_t head = {0,0};
-        end_t end;
+        hdr_t hdr;
 
-        rc = session.vtx_set_.main_.get(graph_i, head);
-        assertm(MDB_SUCCESS == rc, rc);
-        extensions::graphdb::list::end::read(session.vtx_set_.list_, head, end);
+        assertm(MDB_SUCCESS == (rc = session.vtx_set_.main_.get(graph_i, head)), rc);
+        assertm(MDB_SUCCESS == (rc = session.vtx_set_.list_.get(head, hdr)), rc);
 
-        graph.vertices_.resize_(end.bytes());
+        graph.vertices_.resize_(hdr.bytes());
         graph.vertices_.zero_();
         extensions::graphdb::list::read(session.vtx_set_.list_, head, graph.vertices_);
 
-        // Since we have the end node of the vtx set, resize the adj mtx as well.
-        graph.edges_.resize_({(int64_t)end.bytes() * CHAR_BIT, (int64_t)end.bytes()});  // h,w
+        // Since we have the header node of the vtx set, resize the adj mtx as well.
+        graph.edges_.resize_({(int64_t)hdr.bytes() * CHAR_BIT, (int64_t)hdr.bytes()});  // h,w
         graph.edges_.zero_();
     }
 
@@ -80,7 +79,7 @@ void extensions::graphdb::graph::write(extensions::graphdb::Environment& env,
         if(MDB_NOTFOUND == rc)
             extensions::graphdb::list::head::find(session.vtx_set_.list_, head);
         extensions::graphdb::refcount::increase(session.vtx_set_, graph_i, head);
-        extensions::graphdb::list::write(session.vtx_set_.list_, head, graph.vertices_);
+        extensions::graphdb::list::write(session.vtx_set_.list_, head, graph.vertices_, 0);
     }
 
     {
@@ -101,7 +100,7 @@ void extensions::graphdb::graph::write(extensions::graphdb::Environment& env,
 
             auto slice = graph.edges_.index(at::indexing::TensorIndex{(int64_t)vtx});
             extensions::graphdb::refcount::increase(session.adj_mtx_, key, head);
-            extensions::graphdb::list::write(session.adj_mtx_.list_, head, slice);
+            extensions::graphdb::list::write(session.adj_mtx_.list_, head, slice, 0);
         };
         graph.vertices(kernel);
     }
@@ -338,7 +337,6 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
         mt.attr("VERTEX_SET_H")       = py::cast(extensions::graphdb::schema::VERTEX_SET_H);
         mt.attr("VERTEX_SET_L")       = py::cast(extensions::graphdb::schema::VERTEX_SET_L);
 
-
         mt.def("test_graphdb_cardinalities",
                +[]{
 
@@ -532,11 +530,11 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        {
                            Transaction txnR(env, flags::txn::READ);
                            Database dbR(txnR, env.schema_[schema::L(schema::VERTEX_FEATURE)], flags::db::READ);
-                           schema::meta_key_t key = schema::META_KEY_PAGE;
-                           schema::meta_page_t value = 0;
+                           schema::meta_key_t key = schema::META_LIST_HEAD;
+                           schema::list_hdr_t value;
 
                            assertm(MDB_SUCCESS == (rc = dbR.get(key, value)), rc);
-                           assertm(1 == value, value);
+                           assertm(1 == value.length(), value);
                            assertm(MDB_SUCCESS == (rc = txnR.abort()), rc);
                        }
 
@@ -551,7 +549,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                            {
                                if(schema::RESERVED == h) continue;
                                hint.head() = h;
-                               hint.tail() = schema::LIST_TAIL_MAX;
+                               hint.tail() = 0;
                                value.graph() = 0xba5eba11;
                                assertm(MDB_SUCCESS == (rc = dbE.put(hint, value, flags::put::DEFAULT)), rc);
                            }
@@ -575,11 +573,11 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        {
                            Transaction txn(env, flags::txn::READ);
                            Database db(txn, env.schema_[schema::L(schema::VERTEX_FEATURE)], flags::db::READ);
-                           schema::meta_key_t key = schema::META_KEY_PAGE;
-                           schema::meta_page_t value = 0;
+                           schema::meta_key_t key = schema::META_LIST_HEAD;
+                           schema::list_hdr_t value;
 
                            assertm(MDB_SUCCESS == (rc = db.get(key, value)), rc);
-                           assertm(2 == value, value);
+                           assertm(2 == value.length(), value);
                            assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                        }
                    }
@@ -651,17 +649,26 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        schema::list_key_t head{1,0};
-                       schema::list_end_t end = {0,0,0,1};  // write expects a refcount
+                       schema::list_hdr_t hdr = {0,0,0,1};  // write expects a refcount
 
-                       list::end::write(db, head, end);
-                       list::write(db, head, buffer);
+                       assertm(MDB_SUCCESS == (rc = db.put(head, hdr, flags::put::DEFAULT)), rc);
+                       list::write(db, head, buffer, hash::make(buffer));
 
                        // verify the DB
 
                        schema::list_key_t iter;
                        buff_t read;
 
+                       // verify the header node
+
                        iter = schema::list_key_t{1,0};
+                       assertm(MDB_SUCCESS == (rc = db.get(iter, hdr)), rc);
+                       assertm(2 == hdr.length(), hdr);
+                       assertm(buffer.size() * sizeof(elem_t) == hdr.bytes(), hdr);
+                       assertm(hash::make(buffer) == hdr.hash(), hdr);
+                       assertm(1 == hdr.refcount(), hdr);
+
+                       iter = schema::list_key_t{1,1};
                        assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
 
                        assertm(0xba5e == read[0],             read[0]);
@@ -669,7 +676,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0      == read[0 + chunk - 2], read[0 + chunk - 2]);
                        assertm(0xba11 == read[0 + chunk - 1], read[0 + chunk - 1]);
 
-                       iter = schema::list_key_t{1,1};
+                       iter = schema::list_key_t{1,2};
                        assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
 
                        assertm(0xc001 == read[0],             read[0]);
@@ -677,16 +684,8 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0      == read[0 + chunk - 2], read[0 + chunk - 2]);
                        assertm(0xbee5 == read[0 + chunk - 1], read[0 + chunk - 1]);
 
-                       iter = schema::list_key_t{1,2};
+                       iter = schema::list_key_t{1,3};
                        assertm(MDB_NOTFOUND == (rc = db.get(iter, read)), rc);
-
-                       // verify the end node
-
-                       list::end::read(db, head, end);
-                       assertm(2 == end.length(), end.length());
-                       assertm(buffer.size() * sizeof(elem_t) == end.bytes(), end.bytes());
-                       assertm(hash::make(buffer) == end.hash(), end.hash());
-                       assertm(1 == end.refcount(), end.refcount());
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
@@ -738,10 +737,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        Database db(txn, env.schema_[schema::H(schema::VERTEX_FEATURE)], flags::db::WRITE);
 
                        schema::list_key_t head{1,0};
-                       schema::list_end_t end = {0,0,0,1};  // write expects a refcount
+                       schema::list_hdr_t hdr = {0,0,0,1};  // write expects a refcount
 
-                       list::end::write(db, head, end);
-                       list::write(db, head, buffer);
+                       assertm(MDB_SUCCESS == (rc = db.put(head, hdr, flags::put::DEFAULT)), rc);
+                       list::write(db, head, buffer, hash::make(buffer));
 
                        // verify the DB
 
@@ -749,21 +748,24 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        buff_t read;
 
                        iter = schema::list_key_t{1,0};
-                       assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.get(iter, hdr)), rc);
 
                        iter = schema::list_key_t{1,1};
                        assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
 
                        iter = schema::list_key_t{1,2};
+                       assertm(MDB_SUCCESS == (rc = db.get(iter, read)), rc);
+
+                       iter = schema::list_key_t{1,3};
                        assertm(MDB_NOTFOUND == (rc = db.get(iter, read)), rc);
 
-                       // verify the end node
+                       // verify the header node
 
-                       list::end::read(db, head, end);
-                       assertm(2 == end.length(), end.length());
-                       assertm(buffer.size() * sizeof(elem_t) == end.bytes(), end.bytes());
-                       assertm(hash::make(buffer) == end.hash(), end.hash());
-                       assertm(1 == end.refcount(), end.refcount());
+                       assertm(MDB_SUCCESS == (rc = db.get(head, hdr)), rc);
+                       assertm(2 == hdr.length(), hdr.length());
+                       assertm(buffer.size() * sizeof(elem_t) == hdr.bytes(), hdr.bytes());
+                       assertm(hash::make(buffer) == hdr.hash(), hdr.hash());
+                       assertm(1 == hdr.refcount(), hdr.refcount());
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
 
@@ -812,27 +814,27 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        schema::list_key_t hash{1,0};
                        schema::list_key_t value;
                        schema::list_key_t iter = hash;
-                       schema::list_end_t end;
+                       schema::list_hdr_t hdr;
 
                        {
-                           list::end::read(db.hash_, iter, end);
-                           assertm(0 == end.length(), end.length());
+                           assertm(MDB_NOTFOUND == (rc = db.hash_.get(iter, hdr)), rc);
+                           assertm(0 == hdr.length(), hdr.length());
                        }
 
                        value = {0xba5e, 0xba11};
                        hash::write(db.hash_, hash, value);
 
                        {
-                           list::end::read(db.hash_, iter, end);
-                           assertm(1 == end.length(), end.length());
+                           assertm(MDB_SUCCESS == (rc = db.hash_.get(iter, hdr)), rc);
+                           assertm(1 == hdr.length(), hdr.length());
                        }
 
                        value = {0xdead, 0xbeef};
                        hash::write(db.hash_, hash, value);
 
                        {
-                           list::end::read(db.hash_, iter, end);
-                           assertm(2 == end.length(), end.length());
+                           assertm(MDB_SUCCESS == (rc = db.hash_.get(iter, hdr)), rc);
+                           assertm(2 == hdr.length(), hdr.length());
                        }
 
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
@@ -845,13 +847,13 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        schema::list_key_t hash;
                        schema::list_key_t value;
 
-                       hash = {1,0};
+                       hash = {1,1};
 
                        assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
                        assertm(0xba5e == value.head(), value.head());
                        assertm(0xba11 == value.tail(), value.tail());
 
-                       hash = {1,1};
+                       hash = {1,2};
 
                        assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
                        assertm(0xdead == value.head(), value.head());
@@ -895,9 +897,12 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
 
                        schema::list_key_t hash;
                        schema::list_key_t value;
+                       schema::list_hdr_t hdr;
 
                        hash = {1,0};
-                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, hdr)), rc);
+                       assertm(3 == hdr.length(), hdr.length());
+                       assertm(3 * sizeof(schema::list_key_t) == hdr.bytes(), hdr.bytes());
 
                        hash = {1,1};
                        assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
@@ -906,13 +911,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
 
                        hash = {1,3};
-                       assertm(MDB_NOTFOUND == (rc = db.hash_.get(hash, value)), rc);
+                       assertm(MDB_SUCCESS == (rc = db.hash_.get(hash, value)), rc);
 
-                       schema::list_end_t end;
-                       list::end::read(db.hash_, hash, end);
-                       assertm(3 == hash.tail(), hash);
-                       assertm(3 == end.length(), end.length());
-                       assertm(3 * sizeof(schema::list_key_t) == end.bytes(), end.bytes());
+                       hash = {1,4};
+                       assertm(MDB_NOTFOUND == (rc = db.hash_.get(hash, value)), rc);
 
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
@@ -924,27 +926,28 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        {
                            schema::list_key_t hash;
 
-                           hash = {1,0};
+                           hash = {1,1};
                            list::remove(db.hash_, hash);
                        }
 
                        {
                            schema::list_key_t iter;
                            schema::list_key_t value;
+                           schema::list_hdr_t hdr;
+
+                           iter = {1,0};
+                           assertm(MDB_SUCCESS == (rc = db.hash_.get(iter, hdr)), rc);
+                           assertm(2 == hdr.length(), hdr.length());
+                           assertm(2 * sizeof(schema::list_key_t) == hdr.bytes(), hdr.bytes());
 
                            iter = {1,1};
                            assertm(MDB_SUCCESS == (rc = db.hash_.get(iter, value)), rc);
 
                            iter = {1,2};
-                           assertm(MDB_NOTFOUND == (rc = db.hash_.get(iter, value)), rc);
+                           assertm(MDB_SUCCESS == (rc = db.hash_.get(iter, value)), rc);
 
                            iter = {1,3};
                            assertm(MDB_NOTFOUND == (rc = db.hash_.get(iter, value)), rc);
-
-                           schema::list_end_t end;
-                           list::end::read(db.hash_, iter, end);
-                           assertm(2 == end.length(), end.length());
-                           assertm(2 * sizeof(schema::list_key_t) == end.bytes(), end.bytes());
                        }
                        assertm(MDB_SUCCESS == (rc = txn.commit()), rc);
                    }
@@ -974,7 +977,6 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        Transaction txn(env, flags::txn::NESTED_RW);
                        extensions::graphdb::schema::DatabaseSet db(txn, extensions::graphdb::schema::VERTEX_FEATURE, extensions::graphdb::flags::db::WRITE);
 
-                       schema::graph_feature_key_t key = {0,0};  // get it from the DB
                        schema::graph_feature_key_t::value_type value = 0xba11;
 
                        extensions::graphdb::hash::visitor_t<schema::graph_feature_key_t> visitor =
@@ -1033,27 +1035,38 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                            size_t head = 2;
                            schema::list_key_t iter{head,0};
                            schema::list_key_t value;
+                           schema::list_hdr_t hdr;
 
-                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_SET)), rc);
-
-                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, hdr, MDB_cursor_op::MDB_SET)), rc, iter);
                            assertm(head == iter.head(), iter.head());
-                           assertm(1 == iter.tail(), iter.tail());
+                           assertm(0 == iter.tail(), iter.tail());
+
+                           iter.tail() = 1;
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc, iter);
+                           assertm(head == iter.head(), iter.head());
+
+                           iter.tail() = 2;
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc, iter);
+                           assertm(head == iter.head(), iter.head());
                            assertm(0xdead == value.head(), value.head());
                            assertm(0xbeef == value.tail(), value.tail());
 
-                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
+                           iter.tail() = 3;
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc, iter);
                            assertm(head == iter.head(), iter.head());
-                           assertm(2 == iter.tail(), iter.tail());
 
-                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
-                           assertm(head == iter.head(), iter.head());
-                           assertm(extensions::graphdb::schema::LIST_TAIL_MAX == iter.tail(), iter.tail());
+                           iter.tail() = 4;  // we moved to {head+1,0} instead
+                           assertm(MDB_NOTFOUND == (rc = cursor.get(iter, hdr, MDB_cursor_op::MDB_NEXT)), rc, iter);
 
-                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc);
-                           assertm(head+1 == iter.head(), iter.head());  // moves to the next head
-                           assertm(0 == iter.tail(), iter.tail());
-                       }
+                           iter = {head+1,1};
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc, iter);
+                           iter = {head+1,2};
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc, iter);
+                           iter = {head+1,3};
+                           assertm(MDB_SUCCESS == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc, iter);
+                           iter = {head+1,4};
+                           assertm(MDB_NOTFOUND == (rc = cursor.get(iter, value, MDB_cursor_op::MDB_NEXT)), rc, iter);
+                        }
 
                        assertm(MDB_SUCCESS == (rc = txn.abort()), rc);
                    }
@@ -1159,13 +1172,13 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
 
                        buff_t buffer{0};
-                       schema::list_end_t end;
+                       schema::list_hdr_t hdr;
                        extensions::graphdb::feature::visit(child.vertex_, keyA,
                                                            [&](schema::list_key_t head, size_t size, size_t hash)
                                                            {
-                                                               extensions::graphdb::list::end::read(child.vertex_.list_, head, end);
-                                                               assertm(end.bytes() == size, end, size);
-                                                               assertm(end.hash() == hash, end, hash);
+                                                               assertm(MDB_SUCCESS == (rc = child.vertex_.list_.get(head, hdr)), rc);
+                                                               assertm(hdr.bytes() == size, hdr, size);
+                                                               assertm(hdr.hash() == hash, hdr, hash);
                                                                extensions::graphdb::list::read(child.vertex_.list_, head, buffer);
                                                                return MDB_SUCCESS;
                                                            });
@@ -1179,10 +1192,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0      == buffer[chunk * 2 - 2], buffer[chunk * 2 - 2]);
                        assertm(0xbee5 == buffer[chunk * 2 - 1], buffer[chunk * 2 - 1]);
 
-                       assertm(2 == end.length(), end.length());
-                       assertm(buffer.size() * sizeof(elem_t) == end.bytes(), end.bytes());
-                       assertm(hashA.head() == end.hash(), end.hash());
-                       assertm(3 == end.refcount(), end.refcount());
+                       assertm(2 == hdr.length(), hdr.length());
+                       assertm(buffer.size() * sizeof(elem_t) == hdr.bytes(), hdr.bytes());
+                       assertm(hashA.head() == hdr.hash(), hdr.hash());
+                       assertm(3 == hdr.refcount(), hdr.refcount());
                    }
 
                    {
@@ -1206,12 +1219,13 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        // the same hash should have three keys
                        extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
 
-                       std::array<bool, 3> result = {false};
+                       std::array<bool, 4> result = {false};
                        extensions::graphdb::hash::visitor_t<schema::vertex_feature_key_t> visitor =
                                [&](schema::list_key_t iter, schema::vertex_feature_key_t key)
                                {
                                    // not only we check that the key is in the list, but also
                                    // implicitly the integrity of the list nodes through the tail
+                                                   result[0]           = true;  // the header
                                    if(key == keyA) result[iter.tail()] = true;
                                    if(key == keyB) result[iter.tail()] = true;
                                    if(key == keyC) result[iter.tail()] = true;
@@ -1242,12 +1256,12 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        extensions::graphdb::schema::TransactionNode child{root, extensions::graphdb::flags::txn::NESTED_RO};
 
                        buff_t buffer{0};
-                       schema::list_end_t end;
+                       schema::list_hdr_t hdr;
                        extensions::graphdb::feature::visitor_t visitor = [&](schema::list_key_t head, size_t size, size_t hash)
                                {
-                                   extensions::graphdb::list::end::read(child.vertex_.list_, head, end);
-                                   assertm(end.bytes() == size, end, size);
-                                   assertm(end.hash() == hash, end, hash);
+                                   assertm(MDB_SUCCESS == (rc = child.vertex_.list_.get(head, hdr)), rc);
+                                   assertm(hdr.bytes() == size, hdr, size);
+                                   assertm(hdr.hash() == hash, hdr, hash);
                                    extensions::graphdb::list::read(child.vertex_.list_, head, buffer);
                                    return MDB_SUCCESS;
                                };
@@ -1263,10 +1277,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0      == buffer[chunk * 2 - 2], buffer[chunk * 2 - 2]);
                        assertm(0xbee5 == buffer[chunk * 2 - 1], buffer[chunk * 2 - 1]);
 
-                       assertm(2 == end.length(), end.length());
-                       assertm(buffer.size() * sizeof(elem_t) == end.bytes(), end.bytes());
-                       assertm(hashA.head() == end.hash(), end.hash());
-                       assertm(1 == end.refcount(), end.refcount());
+                       assertm(2 == hdr.length(), hdr.length());
+                       assertm(buffer.size() * sizeof(elem_t) == hdr.bytes(), hdr.bytes());
+                       assertm(hashA.head() == hdr.hash(), hdr.hash());
+                       assertm(1 == hdr.refcount(), hdr.refcount());
 
                        extensions::graphdb::feature::visit(child.vertex_, keyB, visitor);
 
@@ -1279,10 +1293,10 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                        assertm(0      == buffer[chunk * 2 - 2], buffer[chunk * 2 - 2]);
                        assertm(0xface == buffer[chunk * 2 - 1], buffer[chunk * 2 - 1]);
 
-                       assertm(2 == end.length(), end.length());
-                       assertm(buffer.size() * sizeof(elem_t) == end.bytes(), end.bytes());
-                       assertm(hashB.head() == end.hash(), end.hash());
-                       assertm(1 == end.refcount(), end.refcount());
+                       assertm(2 == hdr.length(), hdr.length());
+                       assertm(buffer.size() * sizeof(elem_t) == hdr.bytes(), hdr.bytes());
+                       assertm(hashB.head() == hdr.hash(), hdr.hash());
+                       assertm(1 == hdr.refcount(), hdr.refcount());
                    }
 
                    {
@@ -1423,7 +1437,7 @@ void PYBIND11_MODULE_IMPL(py::module_ m)
                 std::string filename = "./test.db";
                 int rc = 0;
 
-                const extensions::graphdb::schema::meta_page_t page_sz = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
+                const extensions::graphdb::schema::list_hdr_t::value_type page_sz = extensions::graphdb::schema::page_size * extensions::bitarray::cellsize;
                 std::random_device r;
                 std::default_random_engine e(r());
                 std::uniform_int_distribution<extensions::graphdb::schema::graph_vtx_set_key_t::value_type> d(0, page_sz-1);

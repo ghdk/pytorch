@@ -1,3 +1,4 @@
+from datetime import datetime
 import multiprocessing as mp
 import subprocess
 from pathlib import Path
@@ -6,6 +7,7 @@ import bz2
 import pickle
 import os
 import sys
+import time
 from setuptools import setup, Command
 from contextlib import redirect_stderr
 
@@ -14,20 +16,25 @@ from bitarray import bitarray
 from graph import graph
 from graphdb import graphdb
 from llvmast import llvmast
-import cached_cflags
 
 EXT_USE_WORKSPACE = os.environ.get("EXT_USE_WORKSPACE") or '.'
-EXT_USE_PROF = os.environ.get("EXT_USE_PROF") in ['1']
+EXT_USE_PROF = os.environ.get("EXT_USE_PROF") or '0'  # seconds
+EXT_USE_COMPDB = os.environ.get("EXT_USE_COMPDB")
 
 class DB:
 
-    memmap = {'hdr': ['.h', '.hh'],
-              'src': ['.c', '.cc', '.cpp', '.cxx'],
-              'skip': ['env/lib/python'],
-              'all': False,
-              }    
+    memmap = {
+        'hdr': ['.h', '.hh'],
+        'src': ['.c', '.cc', '.cpp', '.cxx'],
+        'skip': ['env/lib/python'],
+        'all': False,
+    }    
     db = "./setup.db"
     rw = False
+
+    @classmethod
+    def reserved_keys(cls):
+        return ['hdr', 'src', 'skip', 'all']
 
     def unpack(self):
         ret = None
@@ -73,20 +80,30 @@ class clean(Command):
             if Path(llvmast.DB_FILE+"-lock") == child: child.unlink()
             if "llvmast" in str(child) and child.suffix in [".log", ".prof"]: child.unlink()
 
-def kernel(idx, step, log):
-    ret = None
+def kernel(idx, step, log, compdb):
+    ret = {
+        'mtime': [],
+        'proctime': [],
+    }
+    ret['proctime'] = time.monotonic()
     with open(log, "a") as err:
         with redirect_stderr(err):
             print("pid", mp.current_process().pid, file=sys.stderr)
             with DB() as db:
-                indexlist = sorted([k for k in db.keys() if k not in ['hdr', 'src', 'skip', 'all']])
-                ret = [0] * len(indexlist)
+                indexlist = sorted([k for k in db.keys() if k not in DB.reserved_keys()])
+                ret['mtime'] = [0] * len(indexlist)
                 for i in range(idx, len(indexlist), step):
-                    print(f"[{idx}:{step}:{i}/{len(indexlist)}]", indexlist[i], file=sys.stderr, flush=True)
+                    print(f"[{datetime.now()} {idx}:{step}:{i}/{len(indexlist)}]", indexlist[i], file=sys.stderr, flush=True)
                     pth = Path(indexlist[i])
-                    if pth.suffix in db['src'] and (db['all'] or db[str(pth)]['cc_mtime'] != db[str(pth)]['st_mtime']):
-                        llvmast.llvmast(['-c', str(pth)] + ['--'] + cached_cflags.CFLAGS)
-                    ret[i] = db[str(pth)]['st_mtime']
+                    record = next((r for r in compdb if str(pth) in r['file']), None)
+                    if record is None: continue
+                    assert pth.suffix in db['src'], f"Suffixes should include {record}."
+                    if not db['all'] and db[str(pth)]['cc_mtime'] == db[str(pth)]['st_mtime']: continue
+                    compcmd = record.get('command', None) or record.get('arguments', None)
+                    compcmd = compcmd.split() if isinstance(compcmd, str) else compcmd
+                    llvmast.llvmast(['llvmast', str(pth)] + ['--'] + compcmd)
+                    ret['mtime'][i] = db[str(pth)]['st_mtime']
+    ret['proctime'] = time.monotonic() - ret['proctime']
     return ret
 
 class prepare(Command):
@@ -94,13 +111,38 @@ class prepare(Command):
     _workspace = []
     user_options = []
 
+    # CMAKE compilation db entries have the form
+    # {
+    #   'directory': str,  # build directory
+    #   'command': str,  # ex. '/usr/bin/clang++ -DNDEBUG -g -O2 -Wall -fPIC -I/usr/include/python3.13'
+    #   'file': str,  # c/cpp file
+    #   'output': str,  # object file
+    # }
+    #
+    # CLANG compilation db entries have the form
+    # {
+    #   'directory': str,  # build directory
+    #   'file': str,  # c/cpp file
+    #   'output': str,  # object file
+    #   'arguments': list[str],  # ex. ['/usr/lib/llvm-21/bin/clang', '-D', 'NDEBUG', '-g', '-O2', '-Wall', '-fPIC', '-I', '/usr/include/python3.13']
+    # }
+    compdb = []
+
     def initialize_options(self):
         pass
 
     def finalize_options(self):
         self._workspace = [EXT_USE_WORKSPACE]
-        self._profile = EXT_USE_PROF
-    
+        self._profile = int(EXT_USE_PROF)
+
+        # create a list containing all compilation dbs
+        assert EXT_USE_COMPDB
+        compdb_files = EXT_USE_COMPDB.split(':')
+        for file in compdb_files:
+            with open(file, 'r') as f:
+                l = eval(f.read())
+                self.compdb.extend(l)
+
     def run(self):
         with DB(rw=True) as db:
             db['all'] = False
@@ -123,27 +165,34 @@ class prepare(Command):
         logs = [f"llvmast{i}.log" for i in range(proc_count)]
         print(f"logs={logs}")
 
-        mtx = None
+        ctx = None
         profiler = []
         with mp.get_context('fork').Pool(processes=proc_count) as pool:
-            args = lambda i: (i, proc_count, logs[i])
+            args = lambda i: (i, proc_count, logs[i], self.compdb)
             r = pool.starmap_async(kernel, [args(i) for i in range(proc_count)])
             if self._profile:
                 pids = [child.pid for child in mp.active_children()]
                 for pid in pids:
                     proc = subprocess.Popen(['/usr/bin/sample', f"{pid}", "86400", "-wait", "-file", f"./llvmast{pid}.prof"])
                     profiler.append(proc)
-            mtx = r.get()
+
+            try: ctx = r.get(timeout=(self._profile or None))
+            except mp.TimeoutError: pool.terminate()
+            finally:
+                pool.close()
+                pool.join()
         if profiler: print("profiler rc", [p.wait() for p in profiler])
             
-        # reduce the results of the kernels
+        # reduce the results of the kernels, we cannot modify the DB in the kernel due to parallelism
+        if ctx is None: return
         with DB(rw=True) as db:
-            indexlist = sorted([k for k in db.keys() if k not in ['hdr', 'src', 'skip', 'all']])
-            for row in mtx:
+            indexlist = sorted([k for k in db.keys() if k not in DB.reserved_keys()])
+            for row in map(lambda d: d['mtime'], ctx):
                 for i,v in enumerate(row):
                     if not v: continue
                     file = indexlist[i]
                     db[file]['cc_mtime'] = v
+        print("proc time", [round(time,3) for time in map(lambda d: d['proctime'], ctx)], "secs")
 
 setup(name='extensions',
       packages=[],

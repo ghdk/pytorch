@@ -16,8 +16,10 @@
  * - Large write transactions cause the DB file to grow significantly larger
  *   than the size of the data. The errors MDB_MAP_FULL or MDB_TXN_FULL suggest
  *   large write transactions. On memory utilisation see
- *   `<https://www.symas.com/post/understanding-lmdb-database-file-sizes-and-memory-utilization>`_
+ *   `<https://www.symas.com/post/understanding-lmdb-database-file-sizes-and-memory-utilization>`_.
  *
+ * The DB data structure is discussed in `<https://xgwang.me/posts/how-lmdb-works/>`_.
+ * 
  * Larger buffers are split into PAGE_SIZE chunks before they are stored
  * in the DB. Hence we need to associate a single key with multiple data chunks.
  * DUPSORT doesn't help in this case, as each chunk would have to be a tuple
@@ -38,10 +40,11 @@
  *
  * This would result in the linked list
  *
- * 0,0: "ba5e"
- * 0,1: "ba11"
- * 0,2: "15"
- * 0,3: "c001"
+ * 0,0: <header>
+ * 0,1: "ba5e"
+ * 0,2: "ba11"
+ * 0,3: "15"
+ * 0,4: "c001"
  *
  * Hashing named DBs will also need more than one values per key, due to hash
  * collisions. For the hashing function we will use std::hash with
@@ -158,8 +161,9 @@
  *
  * The readers of the DB need to know in advance the size of the buffer that
  * they are about to read, so that they can allocate sufficient memory. Linked
- * lists end with the special node <head, int max> which holds the length of
- * the list and the size of the buffer that is held.
+ * lists start with a header node which holds the length of the list and the
+ * size of the buffer that is held. The header being at node 0 is more suitable
+ * for cursors, as we can do MDB_SET on node 0, and MDB_NEXT to traverse the list.
  *
  * We can have more than one graphs in the DB, each graph identified by the
  * `GRAPH INDEX`. All graph transformations are first captured in the DB,
@@ -199,8 +203,6 @@ namespace flags
 
 namespace schema
 {
-
-constexpr int page_size = 4096;  // bytes
 
 #define T_(t)  t, "H" t, "L" t
 constexpr std::array SCHEMA = {T_("VF"),
@@ -352,13 +354,24 @@ using graph_feature_key_t  = double_key_t;
 using graph_adj_mtx_key_t  = double_key_t;
 using graph_vtx_set_key_t  = single_key_t;
 
-struct list_end_  // use through list_end_t
+/**
+ * Quoting `<https://lmdb.readthedocs.io/en/release/#storage-efficiency-limits>`_
+ * Records are grouped into pages matching the operating system’s VM page size,
+ * which is usually 4096 bytes. Each page must contain at least 2 records, in
+ * addition to 8 bytes per record and a 16 byte header. Due to this the engine
+ * is most space-efficient when the combined size of any (8+key+value) combination
+ * does not exceed 2040 bytes.
+ */
+
+constexpr int page_size = 4096 - 16 - 8 - sizeof(triple_key_t);  // bytes
+
+struct list_hdr_  // list header, use through list_hdr_t
 {
 public:
     using value_type = list_key_t::value_type;
 private:
     /**
-     * [0]: the number of nodes in the list
+     * [0]: the number of nodes in the list excluding the header
      * [1]: the size of the buffer held by the list
      * [2]: hash
      * [3]: refcount
@@ -368,10 +381,10 @@ private:
 public:
 
     constexpr size_t size() { return data_.size(); }
-    constexpr size_t size() const { return const_cast<list_end_*>(this)->size(); }
+    constexpr size_t size() const { return const_cast<list_hdr_*>(this)->size(); }
 
     value_type* data() noexcept { return data_.data(); }
-    const value_type* data() const noexcept { return const_cast<list_end_*>(this)->data(); }
+    const value_type* data() const noexcept { return const_cast<list_hdr_*>(this)->data(); }
 
 public:  // accessors
     value_type& length()
@@ -379,37 +392,37 @@ public:  // accessors
         assert(0 < data_.size());
         return data_[0];
     }
-    const value_type& length() const noexcept { return const_cast<list_end_*>(this)->length(); }
+    const value_type& length() const noexcept { return const_cast<list_hdr_*>(this)->length(); }
 
     value_type& bytes()
     {
         assert(1 < data_.size());
         return data_[1];
     }
-    const value_type& bytes() const noexcept { return const_cast<list_end_*>(this)->bytes(); }
+    const value_type& bytes() const noexcept { return const_cast<list_hdr_*>(this)->bytes(); }
 
     value_type& hash()
     {
         assert(2 < data_.size());
         return data_[2];
     }
-    const value_type& hash() const noexcept { return const_cast<list_end_*>(this)->hash(); }
+    const value_type& hash() const noexcept { return const_cast<list_hdr_*>(this)->hash(); }
 
     value_type& refcount()
     {
         assert(3 < data_.size());
         return data_[3];
     }
-    const value_type& refcount() const noexcept { return const_cast<list_end_*>(this)->refcount(); }
+    const value_type& refcount() const noexcept { return const_cast<list_hdr_*>(this)->refcount(); }
 
 public:
-    list_end_() = default;
-    list_end_(list_end_ const&) = default;
-    list_end_(list_end_&&) = default;
-    list_end_& operator=(list_end_ const&) = default;
-    list_end_& operator=(list_end_&&) = default;
+    list_hdr_() = default;
+    list_hdr_(list_hdr_ const&) = default;
+    list_hdr_(list_hdr_&&) = default;
+    list_hdr_& operator=(list_hdr_ const&) = default;
+    list_hdr_& operator=(list_hdr_&&) = default;
 
-    constexpr list_end_(std::initializer_list<value_type> list)
+    constexpr list_hdr_(std::initializer_list<value_type> list)
     {
         assertm(list.size() == data_.size(), list.size(), data_.size());
 
@@ -422,17 +435,13 @@ public:
     }
 };
 
-using list_end_t = std::enable_if_t<sizeof(list_end_) == 4 * sizeof(typename list_end_::value_type), list_end_>;
-
-using meta_key_t = list_key_t;
-using meta_page_t = meta_key_t::value_type;
+using list_hdr_t = std::enable_if_t<sizeof(list_hdr_) == 4 * sizeof(typename list_hdr_::value_type), list_hdr_>;
 
 // We reserve head=0, a) no hash value should be 0, b) linked list head
-// allocations are random, hence collisions on 0 do not matter. The meta link
-// list does not end in a special end node, as the list is hard coded.
+// allocations are random, hence collisions on 0 do not matter.
+using meta_key_t = list_key_t;
 constexpr typename meta_key_t::value_type RESERVED = 0ULL;
-const meta_key_t META_KEY_PAGE = {RESERVED, 0x0ULL};
-constexpr auto LIST_TAIL_MAX = std::numeric_limits<typename list_key_t::value_type>::max();
+const meta_key_t META_LIST_HEAD = {RESERVED, 0x0ULL};
 
 template<typename K>
 using is_list_key_t = std::enable_if_t<std::is_same_v<K, list_key_t>, void>;
@@ -457,7 +466,7 @@ using is_feature_key_t = std::enable_if_t<std::is_constructible_v<std::variant<v
                                                                                graph_feature_key_t>,
                                                                   K>, void>;
 
-inline std::ostream& operator<<(std::ostream& strm, list_end_t const& end)
+inline std::ostream& operator<<(std::ostream& strm, list_hdr_t const& end)
 {
     std::ostringstream out;
     for(size_t i = 0; i < end.size(); i++)

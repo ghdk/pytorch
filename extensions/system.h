@@ -63,16 +63,6 @@ namespace extensions
         return 0 == status ? ret.get() : name;
     }
 
-    template <typename Iterable>
-    static std::string dump(Iterable iterable)
-    {
-        return std::accumulate(std::next(iterable.begin()), iterable.end(),
-                               std::to_string(*(iterable.begin())),
-                               [](std::string ret, typename Iterable::value_type value){
-            return std::move(ret) + "," + std::to_string(value);
-        });
-    }
-
 #ifdef __cpp_lib_hardware_interference_size
     using std::hardware_constructive_interference_size;
     using std::hardware_destructive_interference_size;
@@ -95,6 +85,33 @@ namespace extensions
                                              && std::is_same_v<std::size_t, decltype(std::declval<std::remove_cv_t<T>>().size())>>>
     : std::true_type
     {};
+
+    template <typename T>
+    static std::string dump(T data)
+    {
+        std::string ret;
+        if constexpr(std::is_same_v<T, torch::Tensor>)
+        {
+            std::ostringstream stream;
+            stream << data;
+            ret = stream.str();
+        }
+        else if constexpr(extensions::is_contiguous<T>::value)
+        {
+            ret = std::accumulate(std::next(data.begin()), data.end(),
+                                std::to_string(*(data.begin())),
+                                [](std::string ret, typename T::value_type value){
+                return std::move(ret) + "," + std::to_string(value);
+            });
+        }
+        else if constexpr(std::is_fundamental_v<T>)
+        {
+            ret = data;
+        }
+        else
+            static_assert(extensions::false_always<T>::value);
+        return ret;
+    }
 
     template<typename T>
     struct accessor_held;

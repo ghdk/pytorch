@@ -118,21 +118,18 @@ extensions::graph::feature::index_t extensions::graph::Graph::vertex(feature::in
 
         while(true)
         {
-            if(ret + step <= max && !bitarray::get(vertices_, ret + step)) break;
-            if((ret || step) && !((ret + step) % slice))
+            if(ret <= max && !bitarray::get(vertices_, ret)) break;
+            if(step >= 0.5 * slice)
             {
                 needs_expansion = true;
-                step = 0;
-                ret = max + 1 + (ret % slice);
+                ret = max + 1;
                 break;
             }
-            if(ret == index)
+            else
             {
                 ret = d(e);
-                step = 0;
-            }
-            else
                 step += 1;
+            }
         }
         if(needs_expansion)
         {
